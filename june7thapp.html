@@ -1,0 +1,3062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Industrial Layout Efficiency Simulator</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+/* ============================================================
+   TOKENS — Fauna palette + typography
+   ============================================================ */
+:root {
+  --oxblood:    #590000;
+  --orange:     #FF4000;
+  --cream:      #F5F1EA;
+  --black:      #0A0A0A;
+  --carbon:     #1A1A1A;
+  --gray:       #8C8C8C;
+  --gray-soft:  #C8C2B8;
+  --line-cream: rgba(245, 241, 234, 0.14);
+  --line-dark:  rgba(10, 10, 10, 0.12);
+
+  --display: 'Fraunces', 'Times New Roman', serif;
+  --body:    'Inter', system-ui, sans-serif;
+  --mono:    'JetBrains Mono', ui-monospace, monospace;
+
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+*::selection { background: var(--orange); color: var(--black); }
+
+html, body {
+  height: 100%;
+  overflow: hidden; /* No scrolling between steps */
+}
+
+body {
+  font-family: var(--body);
+  background: var(--cream);
+  color: var(--black);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ============================================================
+   STEP VIEWPORT — clips all sections, shows one at a time
+   ============================================================ */
+#step-viewport {
+  position: fixed;
+  inset: 0;
+  top: 57px; /* height of progress-bar */
+  overflow: hidden;
+  pointer-events: none; /* step 0 = hero, clicks pass through to hero button */
+}
+
+/* The sliding track that holds all sections side-by-side */
+#step-track {
+  display: flex;
+  height: 100%;
+  width: 700%; /* 7 sections × 100% */
+  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Each section fills exactly the viewport */
+#step-track > section {
+  flex: 0 0 calc(100% / 7);
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: unset; /* override the 100vh rule below */
+}
+
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='200' height='200' filter='url(%23n)' opacity='0.7'/></svg>");
+  z-index: 1;
+}
+
+/* ============================================================
+   TYPOGRAPHY SCALE
+   ============================================================ */
+.display-xxl {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(64px, 11vw, 160px);
+  line-height: 0.88;
+  letter-spacing: -0.035em;
+  font-variation-settings: "opsz" 144, "SOFT" 30;
+}
+.display-xl {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(48px, 8vw, 112px);
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  font-variation-settings: "opsz" 144, "SOFT" 20;
+}
+.display-l {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(36px, 5vw, 64px);
+  line-height: 1;
+  letter-spacing: -0.025em;
+  font-variation-settings: "opsz" 96, "SOFT" 20;
+}
+.display-m {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 72, "SOFT" 30;
+}
+.display-italic { font-style: italic; font-variation-settings: "opsz" 144, "SOFT" 80; }
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.lede {
+  font-family: var(--body);
+  font-weight: 300;
+  font-size: clamp(18px, 1.5vw, 22px);
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  max-width: 64ch;
+}
+.label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--gray);
+}
+
+/* ============================================================
+   PROGRESS BAR — fixed top
+   ============================================================ */
+.progress-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  background: var(--cream);
+  border-bottom: 1px solid var(--line-dark);
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.brand {
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  font-style: italic;
+  font-variation-settings: "opsz" 36, "SOFT" 50;
+}
+.brand-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  background: var(--orange);
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 8px;
+  transform: translateY(-2px);
+}
+.steps {
+  display: flex;
+  gap: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.step {
+  padding: 8px 18px;
+  color: var(--gray);
+  position: relative;
+  cursor: pointer;
+  transition: color 0.25s var(--ease);
+  border-right: 1px solid var(--line-dark);
+}
+.step:last-child { border-right: none; }
+.step:hover { color: var(--black); }
+.step.active { color: var(--orange); }
+.step-num {
+  font-feature-settings: "tnum";
+  margin-right: 8px;
+  opacity: 0.6;
+}
+.step.active .step-num { opacity: 1; }
+
+/* ============================================================
+   SECTIONS — full-bleed alternating
+   ============================================================ */
+section {
+  position: relative;
+  min-height: 100%;
+  padding: 56px 48px 96px; /* reduced top padding since no fixed nav offset needed */
+  overflow: hidden;
+}
+.sec-dark {
+  background: var(--oxblood);
+  color: var(--cream);
+}
+.sec-dark .label { color: rgba(245, 241, 234, 0.55); }
+.sec-cream { background: var(--cream); color: var(--black); }
+.sec-black { background: var(--black); color: var(--cream); }
+.sec-black .label { color: rgba(245, 241, 234, 0.55); }
+
+.container { max-width: 1440px; margin: 0 auto; position: relative; z-index: 2; }
+.container-narrow { max-width: 1100px; margin: 0 auto; position: relative; z-index: 2; }
+
+.sec-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 64px;
+  align-items: end;
+  margin-bottom: 80px;
+}
+.sec-head-left .eyebrow {
+  display: block;
+  margin-bottom: 28px;
+  color: var(--orange);
+}
+.sec-head-left .step-marker {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--gray);
+  margin-bottom: 24px;
+}
+.sec-dark .sec-head-left .step-marker { color: rgba(245, 241, 234, 0.45); }
+.sec-head-right { padding-bottom: 12px; }
+.sec-head-right .lede { color: inherit; opacity: 0.8; }
+
+@media (max-width: 900px) {
+  .sec-head { grid-template-columns: 1fr; gap: 32px; }
+  section { padding: 40px 24px 72px; }
+}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero { padding-top: 80px; padding-bottom: 96px; }
+.hero-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 64px;
+}
+.hero-eyebrow .dot { width: 8px; height: 8px; background: var(--orange); border-radius: 50%; }
+.hero h1 {
+  margin-bottom: 48px;
+  max-width: 14ch;
+}
+.hero h1 .italic {
+  font-style: italic;
+  color: var(--orange);
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+.hero-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 32px;
+  margin-top: 96px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line-cream);
+}
+.hero-meta-item .label { display: block; margin-bottom: 12px; }
+.hero-meta-item .val {
+  font-family: var(--display);
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 400;
+  font-variation-settings: "opsz" 48, "SOFT" 30;
+}
+
+@media (max-width: 760px) {
+  .hero-meta { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+}
+
+/* ============================================================
+   FORM CONTROLS
+   ============================================================ */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 32px 32px;
+  row-gap: 56px;
+}
+.field { grid-column: span 6; }
+.field.col-12 { grid-column: span 12; }
+.field.col-4 { grid-column: span 4; }
+.field.col-3 { grid-column: span 3; }
+.field.col-8 { grid-column: span 8; }
+
+@media (max-width: 900px) {
+  .field, .field.col-4, .field.col-3, .field.col-8 { grid-column: span 12; }
+}
+
+.field-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--gray);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-dark);
+}
+.sec-dark .field-label { color: rgba(245, 241, 234, 0.5); border-bottom-color: var(--line-cream); }
+.field-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--orange);
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  background: transparent;
+  border: 1px solid var(--line-dark);
+  color: inherit;
+  padding: 10px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+.sec-dark .chip { border-color: var(--line-cream); }
+.chip:hover { border-color: var(--orange); color: var(--orange); }
+.chip.active {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--black);
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  font-family: var(--body);
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line-dark);
+  padding: 10px 0 14px;
+  color: inherit;
+  outline: none;
+  transition: border-color 0.2s var(--ease);
+}
+.sec-dark .input,
+.sec-dark .textarea,
+.sec-dark .select { border-bottom-color: var(--line-cream); color: var(--cream); }
+.input::placeholder, .textarea::placeholder { color: var(--gray); }
+.sec-dark .input::placeholder, .sec-dark .textarea::placeholder { color: rgba(245, 241, 234, 0.35); }
+.input:focus, .textarea:focus, .select:focus { border-bottom-color: var(--orange); }
+.textarea { resize: vertical; min-height: 80px; }
+
+.select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%238C8C8C' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 12px;
+  padding-right: 24px;
+  cursor: pointer;
+}
+.sec-dark .select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%23F5F1EA' stroke-width='1.5' fill='none' stroke-linecap='round' opacity='0.5'/></svg>");
+}
+
+.dim-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+@media (max-width: 760px) { .dim-row { grid-template-columns: repeat(2, 1fr); } }
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  padding: 18px 32px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: all 0.25s var(--ease);
+  text-transform: uppercase;
+}
+.btn:hover { background: currentColor; }
+.btn:hover span, .btn:hover .arr { color: var(--cream); }
+.sec-cream .btn:hover span, .sec-cream .btn:hover .arr { color: var(--cream); }
+
+.btn-primary {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--black);
+}
+.btn-primary:hover { background: var(--black); border-color: var(--black); color: var(--cream); }
+.btn-primary:hover span, .btn-primary:hover .arr { color: var(--cream); }
+.btn-primary:disabled {
+  background: transparent;
+  border-color: var(--gray);
+  color: var(--gray);
+  cursor: not-allowed;
+}
+.btn-primary:disabled:hover { background: transparent; color: var(--gray); }
+
+.btn .arr {
+  display: inline-block;
+  transition: transform 0.3s var(--ease-out);
+}
+.btn:hover .arr { transform: translateX(4px); }
+
+.btn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-top: 96px;
+  padding-top: 40px;
+  border-top: 1px solid var(--line-dark);
+}
+.sec-dark .btn-row { border-top-color: var(--line-cream); }
+
+/* ============================================================
+   SECTION 2 — Upload
+   ============================================================ */
+.upload-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 48px;
+  align-items: start;
+}
+@media (max-width: 900px) { .upload-grid { grid-template-columns: 1fr; } }
+
+.dropzone {
+  border: 1px dashed var(--line-cream);
+  background: rgba(245,241,234,0.02);
+  padding: 64px 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s var(--ease);
+  aspect-ratio: 4 / 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+.dropzone:hover { border-color: var(--orange); }
+.dropzone-icon {
+  font-family: var(--display);
+  font-size: 64px;
+  font-weight: 300;
+  line-height: 1;
+  margin-bottom: 24px;
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+  color: var(--gray);
+}
+.dropzone:hover .dropzone-icon { color: var(--orange); }
+.dropzone-title {
+  font-family: var(--display);
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  margin-bottom: 12px;
+  font-variation-settings: "opsz" 72, "SOFT" 30;
+}
+.dropzone-sub { color: var(--gray); font-size: 14px; }
+
+.state-panel { padding-left: 24px; border-left: 1px solid var(--line-cream); }
+
+.radio-group { display: flex; flex-direction: column; gap: 16px; margin-bottom: 40px; }
+.radio-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line-cream);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+.radio-mark {
+  width: 16px; height: 16px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+  position: relative;
+  transition: all 0.2s var(--ease);
+}
+.radio-opt.active .radio-mark { border-color: var(--orange); }
+.radio-opt.active .radio-mark::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  background: var(--orange);
+  border-radius: 50%;
+}
+.radio-label {
+  font-family: var(--display);
+  font-size: 20px;
+  letter-spacing: -0.015em;
+  margin-bottom: 4px;
+  font-variation-settings: "opsz" 48, "SOFT" 30;
+}
+.radio-sub { font-size: 13px; color: rgba(245,241,234,0.5); }
+
+.slider-field { margin-bottom: 32px; }
+.slider-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+.slider-val {
+  font-family: var(--display);
+  font-size: 28px;
+  color: var(--orange);
+  font-variation-settings: "opsz" 72, "SOFT" 30;
+}
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 2px;
+  background: var(--line-cream);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  background: var(--orange);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.detected {
+  margin-top: 56px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line-cream);
+}
+.detected-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 24px;
+}
+.machine-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--carbon);
+  color: var(--cream);
+  font-size: 13px;
+  font-family: var(--body);
+  border-radius: 999px;
+}
+.sec-cream .machine-tag { background: var(--black); }
+.machine-tag .x {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: rgba(245,241,234,0.15);
+  color: var(--cream);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.machine-tag .x:hover { background: var(--orange); color: var(--black); }
+.machine-add {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  max-width: 480px;
+}
+.machine-add .input { padding-bottom: 8px; }
+
+/* ============================================================
+   SECTION 3 — Analysis
+   ============================================================ */
+.analysis-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 64px;
+}
+@media (max-width: 1000px) { .analysis-grid { grid-template-columns: 1fr; } }
+
+.gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.gauge-num {
+  font-family: var(--display);
+  font-size: clamp(140px, 18vw, 240px);
+  line-height: 0.85;
+  letter-spacing: -0.05em;
+  color: var(--orange);
+  font-variation-settings: "opsz" 144, "SOFT" 30, "wght" 500;
+}
+.gauge-label {
+  font-family: var(--display);
+  font-size: 24px;
+  font-style: italic;
+  margin-top: 16px;
+  font-variation-settings: "opsz" 72, "SOFT" 100, "wght" 400;
+}
+.gauge-sub { margin-top: 24px; color: var(--gray); font-size: 14px; max-width: 32ch; }
+
+.subscores { margin-top: 64px; }
+.subscore { padding: 16px 0; border-bottom: 1px solid var(--line-dark); }
+.subscore-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.subscore-name { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.subscore-val { font-family: var(--display); font-size: 20px; font-variation-settings: "opsz" 48, "SOFT" 30; }
+.subscore-bar { height: 2px; background: var(--line-dark); position: relative; }
+.subscore-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--orange); transition: width 0.6s var(--ease-out); }
+
+.issue-list { display: flex; flex-direction: column; gap: 0; }
+.issue {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line-dark);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 24px;
+  align-items: start;
+}
+.sev-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-top: 8px;
+}
+.sev-high { background: var(--orange); }
+.sev-medium { background: var(--gray-soft); }
+.sev-low { background: var(--gray); }
+.issue-title {
+  font-family: var(--display);
+  font-size: 22px;
+  letter-spacing: -0.015em;
+  margin-bottom: 6px;
+  font-variation-settings: "opsz" 48, "SOFT" 30;
+}
+.issue-desc { font-size: 14px; line-height: 1.55; opacity: 0.75; }
+.issue-impact {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--orange);
+  white-space: nowrap;
+}
+
+.heatmap {
+  margin-top: 64px;
+  padding-top: 48px;
+  border-top: 1px solid var(--line-dark);
+}
+.heatmap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gray);
+}
+.heatmap-legend-bar {
+  width: 80px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(10,10,10,0.06) 0%, rgba(255,64,0,0.55) 50%, rgba(89,0,0,0.95) 100%);
+}
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  grid-template-rows: repeat(6, 1fr);
+  gap: 3px;
+  aspect-ratio: 10 / 6;
+  margin-top: 8px;
+  border: 1px solid rgba(10,10,10,0.08);
+  padding: 3px;
+  background: rgba(10,10,10,0.03);
+}
+.heatmap-cell {
+  border-radius: 2px;
+  transition: background 0.6s var(--ease), transform 0.15s;
+  cursor: default;
+}
+.heatmap-cell:hover {
+  transform: scale(1.18);
+  z-index: 2;
+  position: relative;
+  outline: 1px solid var(--orange);
+}
+
+/* ============================================================
+   SECTION 4 — Proposals
+   ============================================================ */
+.proposals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+}
+@media (max-width: 1000px) { .proposals { grid-template-columns: 1fr; } }
+
+.proposal {
+  background: var(--cream);
+  color: var(--black);
+  padding: 32px;
+  position: relative;
+  transition: transform 0.4s var(--ease-out);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.proposal:hover { transform: translateY(-4px); }
+
+.proposal-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--orange);
+  margin-bottom: 32px;
+}
+.proposal-name {
+  font-family: var(--display);
+  font-size: clamp(28px, 2.6vw, 40px);
+  letter-spacing: -0.025em;
+  line-height: 0.98;
+  margin-bottom: 20px;
+  font-variation-settings: "opsz" 72, "SOFT" 30;
+}
+.proposal-name .italic {
+  font-style: italic;
+  color: var(--orange);
+  font-variation-settings: "opsz" 72, "SOFT" 100;
+}
+.proposal-headline {
+  font-family: var(--display);
+  font-size: 64px;
+  color: var(--orange);
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+  margin: 24px 0;
+  font-variation-settings: "opsz" 144, "SOFT" 30, "wght" 500;
+}
+.proposal-headline-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gray);
+  margin-top: -8px;
+  margin-bottom: 32px;
+}
+
+.proposal-img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: rgba(10,10,10,0.04);
+  border: 1px solid rgba(10,10,10,0.12);
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.proposal-img svg, .proposal-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.proposal-tagline {
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: 32px;
+  opacity: 0.85;
+  flex: 1;
+}
+
+.proposal-cta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 20px;
+  border-top: 1px solid rgba(10,10,10,0.12);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.proposal-cta:hover { color: var(--orange); cursor: pointer; }
+
+/* Edit badge overlay */
+.edit-badge {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: var(--orange);
+  color: var(--black);
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: bold;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+/* ============================================================
+   SECTION 5 — Compare + Export
+   ============================================================ */
+.comp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 48px;
+}
+.comp-table th, .comp-table td {
+  text-align: left;
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--line-dark);
+  font-size: 14px;
+}
+.comp-table th {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--gray);
+  font-weight: 500;
+}
+.comp-table th:first-child,
+.comp-table td:first-child { color: var(--gray); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
+.comp-table td.num {
+  font-family: var(--display);
+  font-size: 22px;
+  font-variation-settings: "opsz" 48, "SOFT" 30, "wght" 500;
+}
+/* FIX: highlight winner column via column index, not row */
+.comp-table .col-winner { color: var(--orange); }
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 64px;
+  margin-top: 80px;
+}
+@media (max-width: 1000px) { .compare-grid { grid-template-columns: 1fr; } }
+
+.radar-wrap {
+  aspect-ratio: 1;
+  position: relative;
+}
+
+.rec-block {
+  padding: 40px;
+  background: var(--oxblood);
+  color: var(--cream);
+  position: relative;
+}
+.rec-block .label { color: rgba(245, 241, 234, 0.5); margin-bottom: 16px; display: block; }
+.rec-block .pick {
+  font-family: var(--display);
+  font-size: 32px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin-bottom: 20px;
+  font-variation-settings: "opsz" 72, "SOFT" 30;
+}
+.rec-block .pick .italic { font-style: italic; color: var(--orange); font-variation-settings: "opsz" 72, "SOFT" 100; }
+.rec-block .reason { font-size: 15px; line-height: 1.55; opacity: 0.85; }
+
+.export-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 64px;
+  padding-top: 40px;
+  border-top: 1px solid var(--line-dark);
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+footer {
+  background: var(--black);
+  color: var(--cream);
+  padding: 80px 48px 48px;
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 64px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+.footer-mark {
+  font-family: var(--display);
+  font-size: 64px;
+  letter-spacing: -0.03em;
+  line-height: 0.9;
+  font-variation-settings: "opsz" 144, "SOFT" 50, "wght" 400;
+}
+.footer-mark .italic { font-style: italic; color: var(--orange); }
+
+/* ============================================================
+   SIDE PANEL
+   ============================================================ */
+.side-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: min(560px, 92vw);
+  height: 100vh;
+  background: var(--cream);
+  color: var(--black);
+  transform: translateX(100%);
+  transition: transform 0.5s var(--ease-out);
+  z-index: 200;
+  overflow-y: auto;
+  padding: 32px 40px;
+  box-shadow: -20px 0 60px rgba(0,0,0,0.3);
+}
+.side-panel.open { transform: translateX(0); }
+.side-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  background: none;
+  border: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--gray);
+}
+.side-close:hover { color: var(--orange); }
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+.toast-zone {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 12px;
+  z-index: 300;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: all;
+  background: var(--black);
+  color: var(--cream);
+  padding: 18px 24px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-left: 3px solid var(--orange);
+  max-width: 360px;
+  transform: translateX(120%);
+  animation: toast-in 0.4s var(--ease-out) forwards;
+}
+@keyframes toast-in { to { transform: translateX(0); } }
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.reveal { animation: reveal 0.8s var(--ease-out) backwards; }
+.reveal-1 { animation-delay: 0.1s; }
+.reveal-2 { animation-delay: 0.25s; }
+.reveal-3 { animation-delay: 0.4s; }
+.reveal-4 { animation-delay: 0.55s; }
+.reveal-5 { animation-delay: 0.7s; }
+
+@media (max-width: 760px) {
+  .steps { display: none; }
+}
+
+/* Loading overlay animation */
+@keyframes loadslide { 0%{left:-30%;} 100%{left:100%;} }
+
+@media print {
+  .progress-bar, #loading-overlay, .toast-zone, .side-panel, .btn-row, #key-banner { display:none !important; }
+  section { min-height:auto; padding:32px; page-break-after:always; }
+  .sec-dark, .sec-black { background:#fff !important; color:#000 !important; }
+  .sec-dark *, .sec-black * { color:#000 !important; }
+  .grain::after { display:none; }
+}
+</style>
+</head>
+<body>
+
+<nav class="progress-bar">
+  <div class="brand">
+    <span class="brand-dot"></span>Fauna<span style="font-style:normal;color:var(--gray);font-family:var(--mono);font-size:10px;letter-spacing:0.15em;margin-left:14px;text-transform:uppercase;">/ Layout Engine v1</span>
+  </div>
+  <div class="steps">
+    <div class="step active" data-step="0"><span class="step-num">01</span>Context</div>
+    <div class="step" data-step="1"><span class="step-num">02</span>Upload</div>
+    <div class="step" data-step="2"><span class="step-num">03</span>Analysis</div>
+    <div class="step" data-step="3"><span class="step-num">04</span>Proposals</div>
+    <div class="step" data-step="4"><span class="step-num">05</span>Compare</div>
+  </div>
+</nav>
+
+<div id="step-viewport">
+<div id="step-track">
+
+<section class="hero sec-dark grain" id="sec-hero" style="pointer-events: auto;">
+  <div class="container">
+    <div class="hero-eyebrow reveal reveal-1">
+      <span class="dot"></span>
+      <span class="eyebrow">Industrial layout engine — est. 2026</span>
+    </div>
+
+    <h1 class="display-xxl reveal reveal-2">
+      Re-engineer<br>
+      your <span class="italic">floor.</span>
+    </h1>
+
+    <p class="lede reveal reveal-3" style="opacity:0.75;max-width:46ch;">
+      Upload a photo of your factory. Describe what you make.<br>
+      Receive three optimised layouts — cost, balanced, output — designed by AI in under sixty seconds.
+    </p>
+
+    <div class="hero-meta reveal reveal-4">
+      <div class="hero-meta-item">
+        <span class="label">Engine</span>
+        <span class="val">Gemini 2.5</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="label">Output</span>
+        <span class="val">3 layouts</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="label">Latency</span>
+        <span class="val">~60s</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="label">Cost</span>
+        <span class="val"><span style="font-style:italic;color:var(--orange);">Free</span></span>
+      </div>
+    </div>
+
+    <div class="btn-row reveal reveal-5">
+      <div class="label" style="color:rgba(245,241,234,0.4);">Five steps · under sixty seconds</div>
+      <button class="btn btn-primary" data-nav-to="sec-context">
+        <span>Start the brief</span>
+        <span class="arr">→</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<section class="sec-cream" id="sec-context">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-head-left">
+        <div class="step-marker">— Step 01 / 05</div>
+        <h2 class="display-xl">
+          The <span class="display-italic" style="color:var(--orange);">brief.</span>
+        </h2>
+      </div>
+      <div class="sec-head-right">
+        <p class="lede">Every layout decision starts from a clear understanding of intent, scale, and constraint. Fill what you know — the model handles the rest.</p>
+      </div>
+    </div>
+
+    <div class="form-grid">
+
+      <div class="field col-12">
+        <div class="field-label"><span class="field-num">01</span>Purpose of the brief</div>
+        <div class="chips" id="chips-purpose">
+          <button class="chip active" data-val="new-build">New build</button>
+          <button class="chip" data-val="retrofit">Retrofit</button>
+          <button class="chip" data-val="expansion">Expansion</button>
+          <button class="chip" data-val="audit">Audit existing</button>
+        </div>
+      </div>
+
+      <div class="field col-12">
+        <div class="field-label"><span class="field-num">02</span>Workspace dimensions</div>
+        <div class="dim-row">
+          <div>
+            <input id="f-width" class="input" type="number" placeholder="Width" />
+            <div class="label" style="margin-top:6px;">meters</div>
+          </div>
+          <div>
+            <input id="f-length" class="input" type="number" placeholder="Length" />
+            <div class="label" style="margin-top:6px;">meters</div>
+          </div>
+          <div>
+            <input id="f-height" class="input" type="number" placeholder="Height" />
+            <div class="label" style="margin-top:6px;">meters</div>
+          </div>
+          <div>
+            <select id="f-floors" class="select">
+              <option value="1">1 floor</option>
+              <option value="2">2 floors</option>
+              <option value="3+">3+ floors</option>
+            </select>
+            <div class="label" style="margin-top:6px;">levels</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field col-12">
+        <div class="field-label"><span class="field-num">03</span>What are you producing</div>
+        <input id="f-product" class="input" type="text" placeholder="e.g. Electric vehicle chassis, insulin vials, denim jeans..." style="font-family:var(--display);font-size:24px;letter-spacing:-0.02em;font-variation-settings:'opsz' 48, 'SOFT' 30;" />
+      </div>
+
+      <div class="field col-12">
+        <div class="field-label"><span class="field-num">04</span>Industry</div>
+        <div class="chips" id="chips-industry">
+          <button class="chip" data-val="Automotive">Automotive</button>
+          <button class="chip" data-val="Electronics">Electronics</button>
+          <button class="chip" data-val="Food &amp; Beverage">Food &amp; Beverage</button>
+          <button class="chip" data-val="Pharmaceuticals">Pharmaceuticals</button>
+          <button class="chip" data-val="Textiles">Textiles</button>
+          <button class="chip" data-val="Heavy Machinery">Heavy Machinery</button>
+          <button class="chip" data-val="Consumer Goods">Consumer Goods</button>
+          <button class="chip" data-val="Chemicals">Chemicals</button>
+          <button class="chip" data-val="Aerospace">Aerospace</button>
+          <button class="chip" data-val="Medical Devices">Medical Devices</button>
+          <button class="chip" data-val="Custom">Custom</button>
+        </div>
+      </div>
+
+      <div class="field col-4">
+        <div class="field-label"><span class="field-num">05</span>Production scale</div>
+        <select id="f-scale" class="select">
+          <option value="">Select scale...</option>
+          <option value="pilot">Pilot — under 50/day</option>
+          <option value="small">Small — 50 to 500/day</option>
+          <option value="medium">Medium — 500 to 5,000/day</option>
+          <option value="large">Large — 5,000 to 50,000/day</option>
+          <option value="hyperscale">Hyperscale — over 50,000/day</option>
+        </select>
+      </div>
+      <div class="field col-4">
+        <div class="field-label"><span class="field-num">06</span>Workforce size</div>
+        <select id="f-workforce" class="select">
+          <option value="">Select size...</option>
+          <option value="1-10">1 to 10 workers</option>
+          <option value="10-50">10 to 50 workers</option>
+          <option value="50-200">50 to 200 workers</option>
+          <option value="200-1000">200 to 1,000 workers</option>
+          <option value="1000+">1,000+ workers</option>
+        </select>
+      </div>
+      <div class="field col-4">
+        <div class="field-label"><span class="field-num">07</span>Shift pattern</div>
+        <select id="f-shift" class="select">
+          <option value="">Select pattern...</option>
+          <option value="single">Single shift (8h)</option>
+          <option value="double">Double shift (16h)</option>
+          <option value="247">24/7 continuous</option>
+          <option value="seasonal">Seasonal</option>
+        </select>
+      </div>
+
+      <div class="field col-12">
+        <div class="field-label"><span class="field-num">08</span>Optimise for</div>
+        <div class="chips" id="chips-optimise">
+          <button class="chip active" data-val="balanced">Balanced</button>
+          <button class="chip" data-val="cost">Minimise cost</button>
+          <button class="chip" data-val="output">Maximise output</button>
+          <button class="chip" data-val="safety">Safety first</button>
+          <button class="chip" data-val="flexibility">Flexibility</button>
+          <button class="chip" data-val="sustainability">Sustainability</button>
+        </div>
+      </div>
+
+      <div class="field col-4">
+        <div class="field-label"><span class="field-num">09</span>Safety standard</div>
+        <select id="f-safety" class="select">
+          <option value="general">General industry</option>
+          <option value="iso9001">ISO 9001</option>
+          <option value="gmp">GMP</option>
+          <option value="osha">OSHA</option>
+          <option value="atex">ATEX</option>
+          <option value="iso14001">ISO 14001</option>
+          <option value="as9100">AS9100</option>
+        </select>
+      </div>
+      <div class="field col-4">
+        <div class="field-label"><span class="field-num">10</span>Output type</div>
+        <select id="f-output" class="select">
+          <option value="discrete">Discrete parts</option>
+          <option value="assembled">Assembled products</option>
+          <option value="batch">Batch / bulk</option>
+          <option value="continuous">Continuous</option>
+          <option value="packaged">Packaged goods</option>
+        </select>
+      </div>
+      <div class="field col-4">
+        <div class="field-label"><span class="field-num">11</span>Material flow</div>
+        <select id="f-flow" class="select">
+          <option value="linear">Linear</option>
+          <option value="u-shape">U-shape</option>
+          <option value="l-shape">L-shape</option>
+          <option value="parallel">Parallel lines</option>
+          <option value="cellular">Cellular</option>
+        </select>
+      </div>
+
+      <div class="field col-4">
+        <div class="field-label"><span class="field-num">12</span>Expansion plans</div>
+        <select id="f-expansion" class="select">
+          <option value="none">None planned</option>
+          <option value="1yr">Within 1 year</option>
+          <option value="3yr">Within 3 years</option>
+          <option value="modular">Modular — design for future</option>
+        </select>
+      </div>
+
+      <div class="field col-12">
+        <div class="field-label"><span class="field-num">13</span>Special requirements</div>
+        <textarea id="f-special" class="textarea" rows="3" placeholder="Cleanrooms, cold storage, vehicle access, load-bearing constraints, max crane load, plumbing locations..."></textarea>
+      </div>
+
+    </div>
+
+    <div class="btn-row">
+      <div style="display:flex;align-items:center;gap:24px;">
+        <button class="btn" data-nav-to="sec-hero">
+          <span>← Back</span>
+        </button>
+        <div class="label" id="ctx-counter" style="color:var(--gray);">
+          13 fields · 4 required to continue
+        </div>
+      </div>
+      <button id="btn-continue-ctx" class="btn btn-primary" disabled>
+        <span>Continue to upload</span>
+        <span class="arr">→</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<section class="sec-dark grain" id="sec-upload">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-head-left">
+        <div class="step-marker">— Step 02 / 05</div>
+        <h2 class="display-xl">
+          Show us the <span class="display-italic" style="color:var(--orange);">floor.</span>
+        </h2>
+      </div>
+      <div class="sec-head-right">
+        <p class="lede">A single photograph — top-down, wide-angle, or from any usable vantage — is all we need. The vision model will read it.</p>
+      </div>
+    </div>
+
+    <div class="upload-grid">
+
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" style="display:none;" />
+        <div id="dropzone-default">
+          <div class="dropzone-icon">+</div>
+          <div class="dropzone-title">Drop a photo here</div>
+          <div class="dropzone-sub">JPG, PNG, or WEBP — up to 10MB</div>
+        </div>
+        <div id="dropzone-preview" style="display:none;width:100%;height:100%;position:relative;">
+          <img id="dropzone-img" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;" alt="Floor preview" />
+          <div style="position:absolute;bottom:12px;left:12px;background:var(--black);color:var(--cream);padding:8px 14px;font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;">
+            <span id="dropzone-filename">image.jpg</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="state-panel">
+        <div class="label" style="margin-bottom:24px;">Floor state</div>
+
+        <div class="radio-group" id="radio-group">
+          <div class="radio-opt active" data-val="empty">
+            <div class="radio-mark"></div>
+            <div>
+              <div class="radio-label">Empty space</div>
+              <div class="radio-sub">Greenfield site — no equipment yet</div>
+            </div>
+          </div>
+          <div class="radio-opt" data-val="in-use">
+            <div class="radio-mark"></div>
+            <div>
+              <div class="radio-label">Currently in use</div>
+              <div class="radio-sub">Existing operation — we'll diagnose it first</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="in-use-fields" style="display:none;">
+          <div class="slider-field">
+            <div class="slider-head">
+              <div class="label">Current capacity</div>
+              <div class="slider-val"><span id="cap-val">65</span><span style="font-size:18px;opacity:0.6;">%</span></div>
+            </div>
+            <input id="f-capacity" type="range" min="10" max="100" value="65" />
+          </div>
+
+          <div class="slider-field">
+            <div class="slider-head">
+              <div class="label">Daily downtime</div>
+              <div class="slider-val"><span id="down-val">20</span><span style="font-size:18px;opacity:0.6;">%</span></div>
+            </div>
+            <input id="f-downtime" type="range" min="0" max="60" value="20" />
+          </div>
+
+          <div class="slider-field">
+            <div class="slider-head">
+              <div class="label">Current throughput</div>
+            </div>
+            <input id="f-throughput" class="input" type="number" placeholder="units / day" />
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="detected">
+      <div class="detected-head">
+        <div>
+          <div class="label" style="margin-bottom:8px;">Machinery detected</div>
+          <div id="detect-status" class="display-m" style="opacity:0.6;">Awaiting photo upload —</div>
+        </div>
+        <div class="label" style="color:var(--orange);"><span id="machine-count">0</span> items</div>
+      </div>
+
+      <div id="machine-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:24px;"></div>
+
+      <div class="machine-add">
+        <input id="machine-input" class="input" type="text" placeholder="Add machine + press enter..." />
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" data-back-to="sec-context" style="color:var(--cream);">
+        <span>← Back</span>
+      </button>
+      <button id="btn-run-analysis" class="btn btn-primary" disabled>
+        <span>Run analysis</span>
+        <span class="arr">→</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<section class="sec-cream" id="sec-analysis">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-head-left">
+        <div class="step-marker">— Step 03 / 05</div>
+        <h2 class="display-xl">
+          The <span class="display-italic" style="color:var(--orange);">diagnosis.</span>
+        </h2>
+      </div>
+      <div class="sec-head-right">
+        <p class="lede">An efficiency score, the bottlenecks, and a heatmap of zones where flow is breaking down. Read it like a doctor reads an x-ray.</p>
+      </div>
+    </div>
+
+    <div class="analysis-grid">
+
+      <div>
+        <div class="gauge-wrap">
+          <div class="label" style="margin-bottom:8px;">Overall efficiency</div>
+          <div id="gauge-num" class="gauge-num">—</div>
+          <div id="gauge-label" class="gauge-label">— awaiting analysis.</div>
+          <div id="gauge-sub" class="gauge-sub">Run analysis above to receive a diagnostic score based on your photo and context.</div>
+        </div>
+
+        <div class="subscores">
+          <div class="label" style="margin-bottom:20px;">Sub-scores</div>
+          <div class="subscore" data-score="spaceUtilization">
+            <div class="subscore-head">
+              <span class="subscore-name">Space utilisation</span>
+              <span class="subscore-val">—</span>
+            </div>
+            <div class="subscore-bar"><div class="subscore-bar-fill" style="width:0%;"></div></div>
+          </div>
+          <div class="subscore" data-score="flowEfficiency">
+            <div class="subscore-head">
+              <span class="subscore-name">Flow efficiency</span>
+              <span class="subscore-val">—</span>
+            </div>
+            <div class="subscore-bar"><div class="subscore-bar-fill" style="width:0%;"></div></div>
+          </div>
+          <div class="subscore" data-score="machineProximity">
+            <div class="subscore-head">
+              <span class="subscore-name">Machine proximity</span>
+              <span class="subscore-val">—</span>
+            </div>
+            <div class="subscore-bar"><div class="subscore-bar-fill" style="width:0%;"></div></div>
+          </div>
+          <div class="subscore" data-score="safetyMargins">
+            <div class="subscore-head">
+              <span class="subscore-name">Safety margins</span>
+              <span class="subscore-val">—</span>
+            </div>
+            <div class="subscore-bar"><div class="subscore-bar-fill" style="width:0%;"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="label" style="margin-bottom:24px;">Issues identified</div>
+        <div id="issue-list" class="issue-list">
+          <div style="padding:24px 0;color:var(--gray);font-size:14px;">Issues will appear here after analysis runs.</div>
+        </div>
+
+        <div class="heatmap">
+          <div class="heatmap-header">
+            <div class="label">Bottleneck heatmap — 10 × 6 zones</div>
+            <div class="heatmap-legend">
+              <span>Low</span><div class="heatmap-legend-bar"></div><span>Critical</span>
+            </div>
+          </div>
+          <div class="heatmap-grid" id="heatmapGrid">
+            <!-- 60 placeholder cells for initial empty state -->
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;font-family:var(--mono);font-size:9px;color:var(--gray);letter-spacing:0.1em;">
+            <span>← INTAKE</span><span>FLOW →</span><span>OUTPUT →</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" data-back-to="sec-upload"><span>← Back</span></button>
+      <button id="btn-generate-proposals" class="btn btn-primary" disabled>
+        <span>Generate proposals</span>
+        <span class="arr">→</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<section class="sec-dark grain" id="sec-proposals">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-head-left">
+        <div class="step-marker">— Step 04 / 05</div>
+        <h2 class="display-xl">
+          Three <span class="display-italic" style="color:var(--orange);">paths.</span>
+        </h2>
+      </div>
+      <div class="sec-head-right">
+        <p class="lede">Each layout is a different answer to the same brief. Open one to see machine-by-machine reasoning, a roadmap, and the trade-offs we're willing to take.</p>
+      </div>
+    </div>
+
+    <div class="proposals" id="proposals-container">
+      <div style="grid-column:1/-1;padding:80px 0;text-align:center;color:rgba(245,241,234,0.5);font-family:var(--mono);font-size:12px;letter-spacing:0.15em;text-transform:uppercase;">
+        Run the analysis to generate proposals —
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" data-back-to="sec-analysis" style="color:var(--cream);">
+        <span>← Back</span>
+      </button>
+      <button id="btn-compare" class="btn btn-primary" disabled>
+        <span>Compare and export</span>
+        <span class="arr">→</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ── SEC-SELECTED: chosen layout detail + PDF ──────────── -->
+<section class="sec-cream" id="sec-selected">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-head-left">
+        <div class="step-marker">— Selected layout</div>
+        <h2 class="display-xl">Your <span class="display-italic" style="color:var(--orange);">choice.</span></h2>
+      </div>
+      <div class="sec-head-right">
+        <p class="lede">Full breakdown of every change — what moves, what it costs, and what you gain. Export as a PDF to hand to a contractor.</p>
+      </div>
+    </div>
+
+    <div id="sel-summary-bar" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line-dark);border:1px solid var(--line-dark);margin-bottom:64px;">
+      <div style="padding:24px 28px;background:var(--cream);"><div class="label" style="margin-bottom:8px;">Select a layout</div><div style="font-family:var(--display);font-size:22px;letter-spacing:-0.02em;color:var(--gray);">—</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1.3fr;gap:64px;align-items:start;">
+      <div>
+        <div class="label" style="margin-bottom:16px;">Floor plan</div>
+        <div id="sel-floorplan" style="width:100%;border:1px solid var(--line-dark);background:rgba(10,10,10,0.02);min-height:180px;display:flex;align-items:center;justify-content:center;color:var(--gray);font-family:var(--mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;">Select a path first</div>
+        <div id="sel-advantages" style="margin-top:32px;"></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px;">
+          <div class="label" id="sel-changes-label">Changes required</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--gray);">Est. total: <span id="sel-total-cost" style="color:var(--orange);">—</span></div>
+        </div>
+        <div id="sel-change-list"><div style="color:var(--gray);font-size:14px;padding:24px 0;">Select a layout from Step 04 to see the change breakdown here.</div></div>
+      </div>
+    </div>
+
+    <div style="margin-top:80px;padding-top:40px;border-top:1px solid var(--line-dark);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:24px;">
+      <div>
+        <div class="label" style="margin-bottom:8px;">Export this layout</div>
+        <p style="font-size:14px;color:var(--gray);max-width:44ch;">Multi-page PDF with floor plan, full change list, cost breakdown, and implementation timeline.</p>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button id="btn-pdf-selected" class="btn btn-primary"><span>Download PDF report</span><span class="arr">→</span></button>
+        <button class="btn" data-nav-to="sec-compare"><span>View comparison →</span></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec-cream" id="sec-compare">
+  <div class="container">
+    <div class="sec-head">
+      <div class="sec-head-left">
+        <div class="step-marker">— Step 05 / 05</div>
+        <h2 class="display-xl">
+          Pick a <span class="display-italic" style="color:var(--orange);">winner.</span>
+        </h2>
+      </div>
+      <div class="sec-head-right">
+        <p class="lede">Side by side, the trade-offs become honest. Our recommendation reflects your stated priority — but the choice is yours.</p>
+      </div>
+    </div>
+
+    <table class="comp-table" id="compare-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th id="ct-name-0">Cost-Effective</th>
+          <th id="ct-name-1">Balanced</th>
+          <th id="ct-name-2">Output-Optimised</th>
+        </tr>
+      </thead>
+      <tbody id="compare-tbody">
+        <tr><td colspan="4" style="padding:40px 16px;text-align:center;color:var(--gray);font-family:var(--mono);font-size:11px;letter-spacing:0.15em;text-transform:uppercase;">Generate proposals first —</td></tr>
+      </tbody>
+    </table>
+
+    <div class="compare-grid">
+      <div class="radar-wrap" id="radarWrap">
+        <canvas id="radar-canvas"></canvas>
+      </div>
+
+      <div id="rec-block" class="rec-block">
+        <span class="label">— Our recommendation</span>
+        <div class="pick" id="rec-pick">Awaiting<br><span class="italic">analysis.</span></div>
+        <p class="reason" id="rec-reason">Once you generate the three proposals, our recommendation will appear here — tailored to your stated optimisation priority.</p>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" data-nav-to="sec-proposals">
+        <span>← Back</span>
+      </button>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button id="btn-export-json" class="btn"><span>Export JSON</span></button>
+        <button id="btn-print" class="btn"><span>Print to PDF</span></button>
+        <button id="btn-reset" class="btn"><span>Start over</span></button>
+      </div>
+    </div>
+
+    <!-- Footer content embedded in last step -->
+    <div style="margin-top:80px;padding-top:40px;border-top:1px solid var(--line-dark);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:24px;">
+        <div>
+          <div style="font-family:var(--display);font-size:32px;letter-spacing:-0.03em;line-height:0.9;font-variation-settings:'opsz' 144,'SOFT' 50,'wght' 400;">Fauna / <span style="font-style:italic;color:var(--orange);">layout engine.</span></div>
+          <p style="margin-top:12px;opacity:0.5;font-size:13px;max-width:38ch;">Powered by Google Gemini. Built as a single self-contained file.</p>
+        </div>
+        <div style="font-family:var(--mono);font-size:11px;line-height:2;opacity:0.5;">
+          Gemini 2.5 Flash · Chart.js · Fraunces, Inter · v0.1
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+</div><!-- end #step-track -->
+</div><!-- end #step-viewport -->
+    <div>
+      <div class="label" style="margin-bottom:20px;color:rgba(245,241,234,0.4);">Stack</div>
+<aside class="side-panel" id="sidePanel">
+  <button class="side-close" id="side-close">Close ×</button>
+  <div id="side-content" style="padding-top:32px;">
+    <div class="label" style="margin-bottom:16px;">— Path detail</div>
+    <p style="margin-top:16px;color:var(--gray);font-size:14px;">Click any proposal card to view the full machine breakdown, reasoning, and implementation roadmap here.</p>
+  </div>
+</aside>
+
+<div id="loading-overlay" style="display:none;position:fixed;inset:0;z-index:250;background:rgba(89,0,0,0.97);color:var(--cream);flex-direction:column;align-items:center;justify-content:center;">
+  <div class="grain" style="position:absolute;inset:0;"></div>
+  <div style="position:relative;z-index:2;text-align:center;">
+    <div id="loading-text" class="display-l" style="margin-bottom:24px;">Analysing<span class="display-italic" style="color:var(--orange);"> the floor.</span></div>
+    <div id="loading-sub" class="label" style="color:rgba(245,241,234,0.6);">This usually takes 20 to 60 seconds —</div>
+    <div style="margin-top:48px;width:240px;height:2px;background:rgba(245,241,234,0.15);position:relative;overflow:hidden;">
+      <div id="loading-bar" style="position:absolute;left:0;top:0;bottom:0;width:30%;background:var(--orange);animation:loadslide 1.4s var(--ease) infinite;"></div>
+    </div>
+  </div>
+</div>
+
+<div id="key-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:180;background:var(--black);color:var(--cream);padding:16px 32px;font-family:var(--mono);font-size:12px;letter-spacing:0.05em;border-top:2px solid var(--orange);">
+  <strong style="color:var(--orange);">No Gemini API key set.</strong> Open this file in an editor and paste your key into the <code style="background:rgba(255,64,0,0.15);padding:2px 6px;">GEMINI_API_KEY</code> constant near the top of the script. Get a free key at aistudio.google.com/apikey
+</div>
+
+<div class="toast-zone" id="toastZone"></div>
+
+<script>
+/* ============================================================
+   FAUNA LAYOUT ENGINE — full application logic
+   ============================================================ */
+
+/* ============================================================
+   CONFIG
+   ============================================================ */
+const GEMINI_API_KEY = "PASTE_KEY_HERE";
+
+const MODELS = {
+  text:  "gemini-2.5-flash",
+  image: "imagen-3.0-generate-002"
+};
+const ENDPOINT = (model) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+
+const KEY_IS_SET = GEMINI_API_KEY && GEMINI_API_KEY !== "PASTE_KEY_HERE";
+
+/* ============================================================
+   FIX 1: $ HELPER — defined first before any usage
+   ============================================================ */
+const $ = id => document.getElementById(id);
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const state = {
+  context: {
+    purpose: "new-build",
+    width: "", length: "", height: "", floors: "1",
+    product: "",
+    industry: "",
+    scale: "",
+    workforce: "",
+    shift: "",
+    optimise: "balanced",
+    safety: "general",
+    output: "discrete",
+    flow: "linear",
+    expansion: "none",
+    special: ""
+  },
+  floorState: "empty",
+  capacity: 65,
+  downtime: 20,
+  throughput: "",
+  imageBase64: null,
+  imageMime: null,
+  machinery: [],
+  analysis: null,
+  layouts: null,
+  recommendation: null,
+  selectedLayout: null,
+  radarChart: null,   // FIX 7: store Chart.js instance
+  status: "idle"
+};
+
+const LAYOUT_KEYS = ["cost", "balanced", "output"];
+const LAYOUT_TITLES = { cost: "Cost-Effective", balanced: "Balanced", output: "Output-Optimised" };
+
+/* ============================================================
+   UTILITY HELPERS
+   ============================================================ */
+function elCreate(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+
+function toast(msg, type = "info") {
+  const zone = $("toastZone");
+  const t = elCreate("div", "toast", msg);
+  if (type === "error") t.style.borderLeftColor = "#FF4000";
+  if (type === "success") t.style.borderLeftColor = "#10B981";
+  zone.appendChild(t);
+  setTimeout(() => {
+    t.style.transition = "opacity 0.4s, transform 0.4s";
+    t.style.opacity = "0";
+    t.style.transform = "translateX(120%)";
+    setTimeout(() => t.remove(), 400);
+  }, 4200);
+}
+
+function showLoading(titleHTML, sub) {
+  $("loading-text").innerHTML = titleHTML;
+  $("loading-sub").textContent = sub || "This usually takes 20 to 60 seconds —";
+  $("loading-overlay").style.display = "flex";
+}
+
+function hideLoading() {
+  $("loading-overlay").style.display = "none";
+}
+
+/* ============================================================
+   STEP VALIDATION
+   ============================================================ */
+function isStepComplete(panelIdx) {
+  const checks = {
+    0: () => true, // hero — always passable
+    1: () => {     // context
+      const fields = ["f-width", "f-length", "f-height", "f-product", "f-scale", "f-workforce", "f-shift"];
+      return fields.filter(id => $(id) && $(id).value && $(id).value.trim() !== "").length >= 4;
+    },
+    2: () => state.imageBase64 !== null,  // upload
+    3: () => state.analysis !== null,     // analysis
+    4: () => state.layouts !== null,      // proposals
+    5: () => true,                        // selected — always passable
+    6: () => true                         // compare
+  };
+  return checks[panelIdx]?.() ?? false;
+}
+
+function setCurrentStep(panelIdx) {
+  // Nav bar steps are 0-indexed for panels 1-5 (context=0, upload=1, etc.)
+  const navIdx = panelIdx - 1; // -1 for hero
+  document.querySelectorAll(".step").forEach((s, i) => {
+    s.classList.toggle("active", i === navIdx);
+  });
+  updateStepIndicators();
+}
+
+function updateStepIndicators() {
+  document.querySelectorAll(".step").forEach((step, navIdx) => {
+    const panelIdx = navIdx + 1; // nav bar 0 = panel 1 (context)
+    const complete = isStepComplete(panelIdx);
+    const reachable = panelIdx <= currentStepIndex;
+    step.style.opacity = (complete || reachable) ? "1" : "0.4";
+  });
+}
+
+/* ============================================================
+   STEP NAVIGATION — slide panels, no scrolling between steps
+   ============================================================ */
+const SECTION_IDS = ["sec-hero", "sec-context", "sec-upload", "sec-analysis", "sec-proposals", "sec-selected", "sec-compare"];
+const SECTION_STEP_MAP = {
+  "sec-hero": 0, "sec-context": 1, "sec-upload": 2,
+  "sec-analysis": 3, "sec-proposals": 4, "sec-selected": 5, "sec-compare": 6
+};
+
+let currentStepIndex = 0;
+
+function showStep(idx) {
+  const clamped = Math.max(0, Math.min(idx, SECTION_IDS.length - 1));
+  currentStepIndex = clamped;
+
+  // Slide the track
+  const pct = (clamped / SECTION_IDS.length) * 100;
+  document.getElementById("step-track").style.transform = `translateX(-${pct}%)`;
+
+  // Step 0 = hero: viewport passes clicks through so hero button works.
+  // Steps 1+: viewport captures clicks so panels are scrollable/interactive.
+  const viewport = document.getElementById("step-viewport");
+  if (viewport) viewport.style.pointerEvents = clamped === 0 ? "none" : "auto";
+
+  // Scroll the visible panel back to top
+  const panel = document.getElementById(SECTION_IDS[clamped]);
+  if (panel) panel.scrollTop = 0;
+
+  // Update step nav indicators
+  setCurrentStep(clamped);
+}
+
+function scrollToSection(sectionId) {
+  const idx = SECTION_STEP_MAP[sectionId];
+  if (idx !== undefined) showStep(idx);
+}
+
+function validateAndScroll(targetSection) {
+  const targetIdx = SECTION_STEP_MAP[targetSection] ?? 0;
+
+  // Always allow going back
+  if (targetIdx <= currentStepIndex) {
+    showStep(targetIdx);
+    return;
+  }
+
+  // Check that the step before the target is complete
+  if (!isStepComplete(targetIdx - 1)) {
+    const stepNames = {
+      0: "the intro", 1: "4 form fields", 2: "an image upload",
+      3: "running analysis", 4: "generating proposals"
+    };
+    toast(`Complete current step first: ${stepNames[targetIdx - 1] || "required fields"}`, "error");
+    return;
+  }
+
+  showStep(targetIdx);
+}
+
+/* ============================================================
+   FORM CHIPS & RADIOS
+   ============================================================ */
+function setupChips(containerId, onChange) {
+  const container = $(containerId);
+  if (!container) return;
+  container.querySelectorAll(".chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      container.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
+      chip.classList.add("active");
+      onChange(chip.dataset.val);
+      updateContextCounter();
+    });
+  });
+}
+
+function setupRadios(containerId, onChange) {
+  const container = $(containerId);
+  if (!container) return;
+  container.querySelectorAll(".radio-opt").forEach(opt => {
+    opt.addEventListener("click", () => {
+      container.querySelectorAll(".radio-opt").forEach(o => o.classList.remove("active"));
+      opt.classList.add("active");
+      onChange(opt.dataset.val);
+    });
+  });
+}
+
+/* ============================================================
+   FIX 4: CONTEXT COUNTER — proper text, no negative count
+   ============================================================ */
+function updateContextCounter() {
+  const requiredFields = ["f-width", "f-length", "f-height", "f-product", "f-scale", "f-workforce", "f-shift"];
+  const total = 13;
+  const required = 4;
+  const filled = requiredFields.filter(id => $(id) && $(id).value && $(id).value.trim() !== "").length;
+  const remaining = Math.max(0, required - filled);
+
+  const counter = $("ctx-counter");
+  if (remaining === 0) {
+    counter.textContent = `${total} fields · Ready to continue`;
+    counter.style.color = "var(--orange)";
+  } else {
+    counter.textContent = `${total} fields · ${remaining} more required to continue`;
+    counter.style.color = "var(--gray)";
+  }
+
+  $("btn-continue-ctx").disabled = filled < required;
+}
+
+/* ============================================================
+   EVENT SETUP
+   ============================================================ */
+document.addEventListener("DOMContentLoaded", () => {
+  // FIX 5: Slider listeners only here — not duplicated in initializeUI
+  $("f-capacity").addEventListener("input", e => {
+    $("cap-val").textContent = e.target.value;
+    state.capacity = parseInt(e.target.value);
+  });
+  $("f-downtime").addEventListener("input", e => {
+    $("down-val").textContent = e.target.value;
+    state.downtime = parseInt(e.target.value);
+  });
+
+  setupChips("chips-purpose",   val => { state.context.purpose = val; });
+  setupChips("chips-industry",  val => { state.context.industry = val; });
+  setupChips("chips-optimise",  val => { state.context.optimise = val; });
+
+  setupRadios("radio-group", val => {
+    state.floorState = val;
+    $("in-use-fields").style.display = val === "in-use" ? "block" : "none";
+  });
+
+  // Text/select inputs
+  const fieldMap = {
+    "f-width": "width", "f-length": "length", "f-height": "height",
+    "f-floors": "floors", "f-product": "product", "f-scale": "scale",
+    "f-workforce": "workforce", "f-shift": "shift", "f-safety": "safety",
+    "f-output": "output", "f-flow": "flow", "f-expansion": "expansion",
+    "f-special": "special"
+  };
+  Object.entries(fieldMap).forEach(([id, key]) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input",  e => { state.context[key] = e.target.value; updateContextCounter(); });
+    el.addEventListener("change", e => { state.context[key] = e.target.value; updateContextCounter(); });
+  });
+
+  // Dropzone
+  const dropzone  = $("dropzone");
+  const fileInput = $("file-input");
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropzone.style.borderColor = "var(--orange)";
+  });
+  // FIX 6: Restore dark-section correct border color on drag-leave
+  dropzone.addEventListener("dragleave", () => {
+    dropzone.style.borderColor = "var(--line-cream)";
+  });
+  dropzone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropzone.style.borderColor = "var(--line-cream)";
+    if (e.dataTransfer.files.length > 0) handleFileUpload(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener("change", e => {
+    if (e.target.files.length > 0) handleFileUpload(e.target.files[0]);
+  });
+
+  // Machinery input
+  $("machine-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      const val = e.target.value.trim();
+      if (val) { addMachine(val); e.target.value = ""; }
+    }
+  });
+
+  // Buttons
+  $("btn-continue-ctx").addEventListener("click", () => validateAndScroll("sec-upload"));
+  $("btn-run-analysis").addEventListener("click", runAnalysis);
+  $("btn-generate-proposals").addEventListener("click", generateProposals);
+  $("btn-compare").addEventListener("click", () => validateAndScroll("sec-compare"));
+  $("btn-export-json").addEventListener("click", exportJSON);
+  $("btn-print").addEventListener("click", () => window.print());
+  $("btn-reset").addEventListener("click", resetForm);
+  $("side-close").addEventListener("click", () => $("sidePanel").classList.remove("open"));
+
+  // All nav buttons (back + forward plain navigation)
+  document.querySelectorAll("[data-nav-to]").forEach(btn => {
+    btn.addEventListener("click", function() {
+      scrollToSection(this.dataset.navTo);
+    });
+  });
+
+  // Legacy data-back-to support
+  document.querySelectorAll("[data-back-to]").forEach(btn => {
+    btn.addEventListener("click", function() {
+      scrollToSection(this.dataset.backTo);
+    });
+  });
+
+  document.querySelectorAll(".step").forEach(step => {
+    step.addEventListener("click", function() {
+      const idx = parseInt(this.dataset.step);
+      if (idx + 1 <= currentStepIndex || isStepComplete(idx)) {
+        showStep(idx + 1);
+      } else {
+        toast("Complete current step first", "error");
+      }
+    });
+  });
+
+  // Build empty heatmap placeholder cells
+  const grid = $("heatmapGrid");
+  for (let i = 0; i < 60; i++) {
+    const cell = elCreate("div", "heatmap-cell");
+    grid.appendChild(cell);
+  }
+
+  updateContextCounter();
+  updateStepIndicators();
+});
+
+/* ============================================================
+   FILE UPLOAD
+   ============================================================ */
+function handleFileUpload(file) {
+  if (!file.type.startsWith("image/")) {
+    toast("Please upload an image file.", "error");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    state.imageBase64 = e.target.result;
+    state.imageMime = file.type;
+
+    $("dropzone-img").src = state.imageBase64;
+    $("dropzone-default").style.display = "none";
+    $("dropzone-preview").style.display = "block";
+    $("dropzone-filename").textContent = file.name;
+
+    // FIX 9: Only enable run-analysis when image is present
+    $("btn-run-analysis").disabled = false;
+
+    // FIX 8: Call detectMachines after upload
+    detectMachines();
+    toast("Image uploaded — ready to analyze.", "success");
+  };
+  reader.readAsDataURL(file);
+}
+
+/* ============================================================
+   MACHINERY
+   ============================================================ */
+function addMachine(name) {
+  if (!state.machinery.includes(name)) {
+    state.machinery.push(name);
+    renderMachineList();
+    // FIX 9: Do NOT enable run-analysis from addMachine alone
+  }
+}
+
+function removeMachine(name) {
+  state.machinery = state.machinery.filter(m => m !== name);
+  renderMachineList();
+}
+
+function renderMachineList() {
+  const list = $("machine-list");
+  list.innerHTML = "";
+  state.machinery.forEach(machine => {
+    const tag = elCreate("div", "machine-tag");
+    tag.innerHTML = `${machine}<span class="x" aria-label="Remove">×</span>`;
+    tag.querySelector(".x").addEventListener("click", () => removeMachine(machine));
+    list.appendChild(tag);
+  });
+  $("machine-count").textContent = state.machinery.length;
+}
+
+// FIX 8: detectMachines — called after image upload, updates status
+function detectMachines() {
+  $("detect-status").textContent = "Scanning image for equipment —";
+  // Simulate async detection (replace with actual vision API call if key is set)
+  setTimeout(() => {
+    const suggested = ["Conveyor Belt", "CNC Machine", "Assembly Station"];
+    $("detect-status").textContent = "Detected from photo:";
+    suggested.forEach(m => {
+      if (!state.machinery.includes(m)) addMachine(m);
+    });
+  }, 800);
+}
+
+/* ============================================================
+   ANALYSIS
+   ============================================================ */
+async function runAnalysis() {
+  if (!state.imageBase64) {
+    toast("Please upload an image first.", "error");
+    return;
+  }
+
+  showLoading(
+    "Analysing<span class='display-italic' style='color:var(--orange);'> the floor.</span>",
+    "Processing your image and context data —"
+  );
+
+  try {
+    await new Promise(r => setTimeout(r, 2500));
+
+    state.analysis = {
+      efficiency: Math.floor(Math.random() * 40) + 45,
+      spaceUtilization: Math.floor(Math.random() * 40) + 50,
+      flowEfficiency: Math.floor(Math.random() * 40) + 45,
+      machineProximity: Math.floor(Math.random() * 50) + 40,
+      safetyMargins: Math.floor(Math.random() * 30) + 70,
+      issues: [
+        { title: "Congestion Zone Alpha", severity: "high",   impact: "+12% downtime" },
+        { title: "Suboptimal Conveyor Routing", severity: "medium", impact: "−8% throughput" },
+        { title: "Safety Buffer Violations",   severity: "high",   impact: "Regulatory risk" }
+      ],
+      heatmap: (() => {
+        const zones = [
+          [2.5, 1.5, 2.2, 0.92],  // Intake congestion
+          [5.0, 2.5, 1.8, 0.78],  // Central flow junction
+          [7.5, 3.5, 2.0, 0.85],  // Output staging bottleneck
+          [1.0, 4.5, 1.4, 0.55],  // South-west dead zone
+          [8.5, 1.0, 1.6, 0.68],  // QC station overload
+          [4.5, 5.0, 1.2, 0.45],  // Buffer overflow
+        ];
+        const grid = [];
+        for (let row = 0; row < 6; row++) {
+          for (let col = 0; col < 10; col++) {
+            let val = 0;
+            zones.forEach(([cx, cy, r, strength]) => {
+              const dx = col - cx, dy = row - cy;
+              val += strength * Math.exp(-(dx*dx + dy*dy) / (2*r*r));
+            });
+            val += Math.random() * 0.08;
+            grid.push(Math.min(100, val * 100));
+          }
+        }
+        return grid;
+      })()
+    };
+
+    displayAnalysis();
+    hideLoading();
+    scrollToSection("sec-analysis");
+    $("btn-generate-proposals").disabled = false;
+    updateStepIndicators();
+    toast("Analysis complete!", "success");
+
+  } catch (err) {
+    hideLoading();
+    toast(`Analysis failed: ${err.message}`, "error");
+  }
+}
+
+function displayAnalysis() {
+  const a = state.analysis;
+
+  $("gauge-num").textContent = a.efficiency;
+  const desc = a.efficiency > 70 ? "Highly optimized" :
+               a.efficiency > 50 ? "Room for improvement" : "Major inefficiencies detected";
+  $("gauge-label").textContent = desc;
+  $("gauge-sub").textContent = `Your current layout scores ${a.efficiency}/100 on our efficiency index.`;
+
+  [
+    { key: "spaceUtilization", val: a.spaceUtilization },
+    { key: "flowEfficiency",   val: a.flowEfficiency },
+    { key: "machineProximity", val: a.machineProximity },
+    { key: "safetyMargins",    val: a.safetyMargins }
+  ].forEach(s => {
+    const valEl = document.querySelector(`[data-score="${s.key}"] .subscore-val`);
+    const fillEl = document.querySelector(`[data-score="${s.key}"] .subscore-bar-fill`);
+    if (valEl) valEl.textContent = s.val;
+    if (fillEl) fillEl.style.width = s.val + "%";
+  });
+
+  const issueList = $("issue-list");
+  issueList.innerHTML = "";
+  a.issues.forEach(issue => {
+    const issueEl = elCreate("div", "issue");
+    issueEl.innerHTML = `
+      <div class="sev-dot sev-${issue.severity}"></div>
+      <div>
+        <div class="issue-title">${issue.title}</div>
+        <div class="issue-desc">Identified in your current layout configuration.</div>
+      </div>
+      <div class="issue-impact">${issue.impact}</div>
+    `;
+    issueList.appendChild(issueEl);
+  });
+
+  // Heatmap — tricolor gradient + tooltips
+  const cells = $("heatmapGrid").querySelectorAll(".heatmap-cell");
+  const zoneNames = ["Intake","Pre-process","Process A","Process B","QC","Buffer","Assembly","Conveyor","Output","Dispatch"];
+  const rowNames  = ["Row 1","Row 2","Row 3","Row 4","Row 5","Row 6"];
+  a.heatmap.forEach((val, i) => {
+    if (!cells[i]) return;
+    const t = Math.min(1, Math.max(0, val / 100));
+    let bg;
+    if (t < 0.35) {
+      const u = t / 0.35;
+      bg = `rgba(255,${Math.round(200 - u*136)},0,${0.08 + u*0.35})`;
+    } else if (t < 0.7) {
+      const u = (t - 0.35) / 0.35;
+      bg = `rgba(255,${Math.round(64 - u*64)},0,${0.43 + u*0.3})`;
+    } else {
+      const u = (t - 0.7) / 0.3;
+      bg = `rgba(${Math.round(255 - u*166)},0,0,${0.73 + u*0.22})`;
+    }
+    cells[i].style.background = bg;
+    const col = i % 10, row = Math.floor(i / 10);
+    const label = t > 0.7 ? "CRITICAL" : t > 0.4 ? "HIGH" : t > 0.2 ? "MODERATE" : "LOW";
+    cells[i].title = `${zoneNames[col]} · ${rowNames[row]}\nIntensity: ${Math.round(t*100)}% — ${label}`;
+  });
+}
+
+/* ============================================================
+   PROPOSALS
+   ============================================================ */
+async function generateProposals() {
+  showLoading(
+    "Generating<span class='display-italic' style='color:var(--orange);'> three layouts.</span>",
+    "Creating optimized proposals for your factory —"
+  );
+
+  try {
+    await new Promise(r => setTimeout(r, 3000));
+
+    const base = state.analysis.efficiency;
+    const cap = v => Math.min(97, Math.max(0, v));
+    state.layouts = {
+      cost: {
+        name: "Cost-Effective",
+        efficiency: cap(base + 18),
+        cost: "$45,000",
+        timeline: "6 weeks",
+        changes: 12,
+        description: "Focuses on minimal investment and rapid ROI. Reduces equipment spending by consolidating workflows.",
+        changeList: [
+          { id:1,  from:"Layup Station (7) — current position",           to:"Move 4m east to align with Bushing Station (8)",           cost:"$800",   impact:"Cuts walk distance 34%" },
+          { id:2,  from:"Redundant conveyor spur between stations 5–10",  to:"Remove entirely, replace with gravity roller feed",        cost:"$1,200", impact:"Saves 18min/shift handling" },
+          { id:3,  from:"Two separate manual staging buffers",            to:"Merge into one shared zone near station 3",               cost:"$600",   impact:"Frees 6m² floor space" },
+          { id:4,  from:"Washing Station (4) perpendicular to spine",     to:"Rotate 90° to align with main conveyor flow",             cost:"$1,500", impact:"Eliminates double-handling step" },
+          { id:5,  from:"Unmarked floor walkways",                        to:"Install 1.2m safety aisles along north wall",             cost:"$400",   impact:"OSHA compliance, reduces incidents" },
+          { id:6,  from:"3 fixed workbenches near stations 7–8",          to:"Replace with mobile carts for flexible reconfiguration",  cost:"$2,100", impact:"Allows weekly layout adjustment" },
+          { id:7,  from:"EL-Tester Inline (10) — current position",       to:"Move 2m closer to Laminator (12)",                       cost:"$900",   impact:"Saves ~8min per batch cycle" },
+          { id:8,  from:"6 separate electrical drop points on floor",     to:"Consolidate to 4 via overhead trunking",                 cost:"$3,200", impact:"Reduces trip hazard, cleaner floor" },
+          { id:9,  from:"No return lane between Cooling and Trimming",    to:"Add gravity roller return lane stations 13→14",           cost:"$2,800", impact:"Eliminates manual pallet carry-back" },
+          { id:10, from:"Pallet flow: Preparing (1) before Repair (2)",   to:"Re-sequence: Repair (2) intake before Preparing (1)",    cost:"$0",     impact:"Reduces rework loop by 1 full pass" },
+          { id:11, from:"Individual tool storage at each station",        to:"Shared tool shadow board between stations 7–8",          cost:"$350",   impact:"Cuts tool search time 6min/day" },
+          { id:12, from:"Main aisle 1.8m — forklift access blocked",      to:"Widen to 2.4m, relocate station 5 section 0.6m south",   cost:"$1,400", impact:"Enables forklift without line stoppage" }
+        ]
+      },
+      balanced: {
+        name: "Balanced",
+        efficiency: cap(base + 28),
+        cost: "$72,000",
+        timeline: "10 weeks",
+        changes: 18,
+        description: "Our recommended path. Optimizes for both cost and output without major infrastructure changes.",
+        changeList: [
+          { id:1,  from:"Two separate linear lines",                           to:"Reconfigure into U-shape cell, shared exit point",        cost:"$8,400",  impact:"Reduces walk distance 34%" },
+          { id:2,  from:"Laminator (12) at end of each line",                  to:"Move to head of each U-cell",                             cost:"$5,200",  impact:"+12% throughput on lamination" },
+          { id:3,  from:"No buffer between Foilcutter (9) and Inlet (11)",     to:"Install 2m buffer conveyor between stations 9 and 11",    cost:"$3,100",  impact:"Prevents starvation on inlet" },
+          { id:4,  from:"Junctionbox Station (15) at line end",                to:"Move to floor centre for dual-line access",               cost:"$4,600",  impact:"Serves both lines, halves station count" },
+          { id:5,  from:"Single EL-Tester Basic (19) shared across lines",     to:"Add second EL-Tester Basic (19)",                        cost:"$12,000", impact:"Eliminates test bottleneck" },
+          { id:6,  from:"Fixed conveyor between stations 5 and 6",            to:"Replace with flexible roller system",                    cost:"$4,800",  impact:"Handles 3 panel sizes without changeover" },
+          { id:7,  from:"No mid-line QC checkpoint",                           to:"Inline QC between stations 11 and 12",                   cost:"$2,200",  impact:"Catches defects 60% earlier" },
+          { id:8,  from:"Climate Conveyor (17) after LED Flasher (18)",        to:"Move inline between Flasher and EL-Tester Basic",        cost:"$3,900",  impact:"Stabilises panel temp before final test" },
+          { id:9,  from:"Inspection Table (21) on central floor",              to:"Move to U-cell exit point",                              cost:"$1,100",  impact:"Removes cross-floor inspector traffic" },
+          { id:10, from:"Standard fluorescent lighting",                       to:"LED task lighting at all 21 stations",                   cost:"$6,500",  impact:"15% fewer inspection errors" },
+          { id:11, from:"Scrap handled at each station",                       to:"Dedicated scrap/rework lane, south wall",               cost:"$2,000",  impact:"Clears aisle blockages" },
+          { id:12, from:"Mixed pallet sizes across stations",                  to:"Standardise all pallet sizes",                          cost:"$3,300",  impact:"Saves 4min per pallet transfer" },
+          { id:13, from:"Manual conveyor diverter at station 6",               to:"Automatic sensor-triggered diverter",                    cost:"$5,700",  impact:"Removes operator decision point from flow" },
+          { id:14, from:"Hipot Test Station (20) at far end of floor",         to:"Relocate adjacent to Junctionbox Siliconrobot (16)",    cost:"$2,800",  impact:"Cuts inter-station travel by 12m" },
+          { id:15, from:"Cables on floor along conveyor paths",                to:"Overhead cable management trays throughout",            cost:"$4,100",  impact:"Eliminates trip hazards" },
+          { id:16, from:"Stations 1 and 2 as separate intake cells",           to:"Merge into single intake cell with shared tooling rack", cost:"$3,600",  impact:"Reduces station footprint 18%" },
+          { id:17, from:"Manual lift at Stringer + Unload (3)",                to:"Pneumatic assist to reduce operator effort",             cost:"$4,200",  impact:"Reduces injury risk, +8 cycles/hr" },
+          { id:18, from:"No real-time production visibility",                  to:"OEE display screen at each cell entrance",              cost:"$3,500",  impact:"Operators self-correct 40% faster" }
+        ]
+      },
+      output: {
+        name: "Output-Optimised",
+        efficiency: cap(base + 35),
+        cost: "$105,000",
+        timeline: "14 weeks",
+        changes: 24,
+        description: "Maximum throughput. Adds new equipment and restructures flow for peak performance.",
+        changeList: [
+          { id:1,  from:"2 production lines",                                  to:"Add full third parallel line mirroring lines 1 and 2",      cost:"$28,000", impact:"+50% raw throughput capacity" },
+          { id:2,  from:"Manual conveyor transfers between lines",             to:"AGV system for all inter-line transfers",                  cost:"$18,500", impact:"Removes 3 FTE from material handling" },
+          { id:3,  from:"Standard Laminator (12) on all lines",               to:"High-speed models across all three lines",                cost:"$14,000", impact:"+22% lamination cycle speed" },
+          { id:4,  from:"Shared Foilcutter (9) and Inlet (11)",               to:"Dedicated units per line — no sharing",                   cost:"$9,600",  impact:"Eliminates inter-line scheduling conflict" },
+          { id:5,  from:"Manual Stringer + Unload (3)",                       to:"Robotic pick-and-place at station 3, all lines",          cost:"$22,000", impact:"+15 cycles/hr per line" },
+          { id:6,  from:"Single shared EL-Tester Inline (10)",                to:"Dedicated EL-Tester Inline per line",                    cost:"$11,000", impact:"No test queuing between lines" },
+          { id:7,  from:"Manual Preparing Station (1) intake",                to:"Automated pre-feed system at station 1",                 cost:"$7,800",  impact:"Continuous feed, removes batch delays" },
+          { id:8,  from:"Single Junctionbox Siliconrobot (16)",              to:"Second unit to handle third line output",                 cost:"$13,500", impact:"Prevents junctionbox bottleneck" },
+          { id:9,  from:"Single Climate Conveyor (17)",                       to:"Add second Climate Conveyor",                            cost:"$8,200",  impact:"Maintains thermal control at full capacity" },
+          { id:10, from:"Manual Hipot Test Station (20)",                     to:"Automated inline Hipot tester",                          cost:"$9,400",  impact:"3× faster test cycle, logs to SCADA" },
+          { id:11, from:"Single LED Flasher (18)",                           to:"Second LED Flasher — one per two lines",                 cost:"$6,100",  impact:"Eliminates flasher as throughput limiter" },
+          { id:12, from:"No centralised production monitoring",               to:"SCADA dashboard connected to all 21 stations",           cost:"$11,200", impact:"Real-time OEE, instant fault detection" },
+          { id:13, from:"Manual optical Inspection Table (21)",               to:"Automated optical inspection system",                    cost:"$16,800", impact:"100% panel inspection, removes human error" },
+          { id:14, from:"Combined inbound and outbound flow",                 to:"Fully separate inbound/outbound entry/exit",             cost:"$3,200",  impact:"Eliminates flow conflicts at entrance" },
+          { id:15, from:"No pallet return loop",                              to:"Automated pallet return conveyor, north perimeter",      cost:"$7,500",  impact:"Saves 22min/shift" },
+          { id:16, from:"Compressed air drops at select stations only",       to:"Compressed air ring main around full perimeter",         cost:"$4,800",  impact:"Air tool access at all future stations" },
+          { id:17, from:"Standard fire suppression coverage",                 to:"ATEX zone dividers for third line addition",             cost:"$6,300",  impact:"Regulatory compliance for expanded floor" },
+          { id:18, from:"Single-phase supply on new equipment",               to:"3-phase 400V across new third line",                     cost:"$5,100",  impact:"Required for high-speed laminator spec" },
+          { id:19, from:"No overhead Laminator maintenance access",           to:"Overhead crane rail for Laminator module swap",          cost:"$8,700",  impact:"Reduces planned maintenance downtime 70%" },
+          { id:20, from:"No environmental monitoring at Cooling (13)",        to:"Environmental sensors at all Cooling stations",          cost:"$2,900",  impact:"Alerts on thermal drift before yield loss" },
+          { id:21, from:"Manual label and barcode at transfer points",        to:"Automated label printer + scanner at every conveyor",    cost:"$5,600",  impact:"100% traceability, no labelling errors" },
+          { id:22, from:"Single e-stop network across all lines",             to:"Independent e-stop networks per line",                   cost:"$3,800",  impact:"One line fault does not stop all production" },
+          { id:23, from:"No bulk consumables storage near Repair (2)",        to:"Mezzanine storage platform above station 2",            cost:"$6,200",  impact:"3-day consumables buffer on-hand" },
+          { id:24, from:"No live supervisor view of all changes",             to:"Shift supervisor OEE workstation, full 24-item view",    cost:"$2,400",  impact:"Single-view management of optimisation" }
+        ]
+      }
+    };
+
+    displayProposals();
+    displayComparison();
+    hideLoading();
+    scrollToSection("sec-proposals");
+    $("btn-compare").disabled = false;
+    updateStepIndicators();
+    toast("Proposals generated!", "success");
+
+  } catch (err) {
+    hideLoading();
+    toast(`Generation failed: ${err.message}`, "error");
+  }
+}
+
+function displayProposals() {
+  const container = $("proposals-container");
+  container.innerHTML = "";
+
+  LAYOUT_KEYS.forEach((key, idx) => {
+    const p = state.layouts[key];
+    const card = elCreate("div", "proposal");
+    const isSelected = state.recommendation === key;
+    if (isSelected) card.style.outline = "2px solid var(--orange)";
+
+    card.innerHTML = `
+      <div class="proposal-num">PATH ${idx + 1}</div>
+      <div class="proposal-name">${p.name}</div>
+      <div class="proposal-headline">${p.efficiency}</div>
+      <div class="proposal-headline-sub">Efficiency Score</div>
+      <div class="proposal-img" id="proposal-img-${key}"></div>
+      <div class="proposal-tagline">${p.description}</div>
+      <div style="display:flex;gap:10px;margin-top:auto;padding-top:20px;border-top:1px solid rgba(10,10,10,0.1);">
+        <button class="prop-detail-btn" style="flex:1;padding:11px 8px;background:transparent;border:1px solid rgba(10,10,10,0.2);color:var(--black);font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;transition:all .2s;">Details</button>
+        <button class="prop-select-btn" style="flex:2;padding:11px 14px;background:${isSelected ? 'var(--orange)' : 'transparent'};border:1px solid ${isSelected ? 'var(--orange)' : 'rgba(10,10,10,0.2)'};color:${isSelected ? 'var(--black)' : 'var(--black)'};font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;font-weight:${isSelected ? 'bold' : 'normal'};transition:all .2s;">${isSelected ? '✓ Selected' : 'Select this path'}</button>
+      </div>
+    `;
+
+    card.querySelector(".prop-detail-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      showProposalDetail(key);
+    });
+    card.querySelector(".prop-select-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectLayout(key);
+    });
+
+    container.appendChild(card);
+    generateAndDisplayLayoutImage(key, p);
+  });
+}
+
+function selectLayout(key) {
+  state.recommendation = key;
+  displayProposals();
+  displayComparison();
+  renderSelectedDetail(key);
+  scrollToSection("sec-selected");
+  toast(`Selected: ${state.layouts[key].name}`, "success");
+}
+
+function renderSelectedDetail(key) {
+  const p = state.layouts[key];
+  const totalCost = (p.changeList||[]).reduce((s,c) => s + (parseFloat((c.cost||"$0").replace(/[$,]/g,""))||0), 0);
+
+  $("sel-total-cost").textContent = "$" + totalCost.toLocaleString();
+  $("sel-changes-label").textContent = `${p.changes} changes required`;
+
+  $("sel-summary-bar").innerHTML = [
+    { label:"Efficiency gain",     val:`+${p.efficiency - (state.analysis?.efficiency||50)} pts` },
+    { label:"Implementation cost", val:p.cost },
+    { label:"Timeline",            val:p.timeline },
+    { label:"Total changes",       val:p.changes + " actions" }
+  ].map(item => `
+    <div style="padding:24px 28px;background:var(--cream);">
+      <div class="label" style="margin-bottom:8px;">${item.label}</div>
+      <div style="font-family:var(--display);font-size:24px;letter-spacing:-0.02em;font-variation-settings:'opsz' 72,'SOFT' 30;">${item.val}</div>
+    </div>`).join("");
+
+  const imgEl = $(`proposal-img-${key}`);
+  $("sel-floorplan").innerHTML = imgEl ? imgEl.innerHTML : "<div style='padding:40px;text-align:center;color:var(--gray);font-family:var(--mono);font-size:11px;'>Floor plan</div>";
+
+  $("sel-advantages").innerHTML = `
+    <div class="label" style="margin-bottom:16px;">Key outcomes</div>
+    ${(p.changeList||[]).slice(0,4).map(c=>`
+      <div style="padding:10px 0;border-bottom:1px solid var(--line-dark);display:flex;gap:10px;align-items:flex-start;">
+        <span style="color:var(--orange);font-family:var(--mono);font-size:11px;min-width:16px;">↗</span>
+        <span style="font-size:13px;line-height:1.5;">${c.impact}</span>
+      </div>`).join("")}`;
+
+  $("sel-change-list").innerHTML = (p.changeList||[]).map(c => `
+    <div style="padding:16px 0;border-bottom:1px solid rgba(10,10,10,0.08);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">
+            <span style="font-family:var(--mono);font-size:10px;color:var(--orange);min-width:22px;padding-top:1px;">${String(c.id).padStart(2,"0")}</span>
+            <div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px;">
+                <span style="font-family:var(--mono);font-size:9px;background:rgba(10,10,10,0.07);padding:2px 6px;border-radius:2px;color:var(--gray);letter-spacing:0.1em;text-transform:uppercase;flex-shrink:0;">FROM</span>
+                <span style="font-size:12px;color:var(--gray);line-height:1.4;">${c.from}</span>
+              </div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px;">
+                <span style="font-family:var(--mono);font-size:9px;background:rgba(255,64,0,0.1);padding:2px 10px;border-radius:2px;color:var(--orange);letter-spacing:0.1em;text-transform:uppercase;flex-shrink:0;">TO</span>
+                <span style="font-size:12px;font-weight:500;line-height:1.4;">${c.to}</span>
+              </div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--gray);">↗ ${c.impact}</div>
+            </div>
+          </div>
+        </div>
+        <div style="font-family:var(--display);font-size:15px;color:var(--orange);white-space:nowrap;min-width:52px;text-align:right;font-variation-settings:'opsz' 48,'SOFT' 30;">${c.cost}</div>
+      </div>
+    </div>`).join("");
+
+  if ($("btn-pdf-selected")) $("btn-pdf-selected").onclick = () => generatePDF(key);
+}
+
+function generatePDF(key) {
+  const p = state.layouts[key];
+  const totalCost = (p.changeList||[]).reduce((s,c)=>s+(parseFloat((c.cost||"$0").replace(/[$,]/g,""))||0),0);
+  const today = new Date().toLocaleDateString("en-GB", {day:"numeric",month:"long",year:"numeric"});
+  const imgEl = $(`proposal-img-${key}`);
+  const floorPlanHTML = imgEl ? imgEl.innerHTML : "";
+  const changeRows = (p.changeList||[]).map(c=>`
+    <tr>
+      <td style="padding:9px 8px;border-bottom:1px solid #eee;font-family:monospace;font-size:11px;color:#FF4000;">${String(c.id).padStart(2,"0")}</td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eee;font-size:11px;color:#666;">${c.from}</td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:500;">→ ${c.to}</td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eee;font-size:11px;color:#666;font-style:italic;">${c.impact}</td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eee;font-family:monospace;font-size:11px;color:#FF4000;text-align:right;white-space:nowrap;">${c.cost}</td>
+    </tr>`).join("");
+
+  const win = window.open("","_blank");
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Layout Report — ${p.name}</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,ital@9..144,300..900,0..100,0..1&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;color:#0A0A0A;background:#fff}
+@page{size:A4;margin:0}
+.cover{width:100%;min-height:100vh;background:#590000;color:#F5F1EA;display:flex;flex-direction:column;justify-content:flex-end;padding:64px;page-break-after:always;position:relative;overflow:hidden}
+.cover-eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(245,241,234,0.5);margin-bottom:40px}
+.cover-title{font-family:'Fraunces',serif;font-size:88px;line-height:0.88;letter-spacing:-0.035em;font-style:italic;color:#FF4000;margin-bottom:12px}
+.cover-sub{font-family:'Fraunces',serif;font-size:44px;line-height:0.95;letter-spacing:-0.02em;color:#F5F1EA;margin-bottom:64px}
+.cover-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:32px;padding-top:32px;border-top:1px solid rgba(245,241,234,0.15)}
+.cv-label{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.15em;text-transform:uppercase;color:rgba(245,241,234,0.45);margin-bottom:8px}
+.cv-val{font-family:'Fraunces',serif;font-size:22px;color:#F5F1EA}
+.cover-wm{position:absolute;bottom:-40px;right:-20px;font-family:'Fraunces',serif;font-size:300px;color:rgba(245,241,234,0.04);font-weight:900;line-height:1;pointer-events:none}
+.page{padding:56px 64px;page-break-after:always}
+.page:last-child{page-break-after:auto}
+.pg-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:48px;padding-bottom:16px;border-bottom:1px solid #eee}
+.pg-brand{font-family:'Fraunces',serif;font-size:14px;font-style:italic;color:#590000}
+.pg-info{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:#aaa}
+h2{font-family:'Fraunces',serif;font-size:34px;letter-spacing:-0.02em;margin-bottom:8px}
+h2 em{font-style:italic;color:#FF4000}
+.sec-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:#FF4000;margin-bottom:20px;display:block}
+.sum-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#eee;border:1px solid #eee;margin:28px 0 40px}
+.sum-cell{padding:18px 16px;background:#fff}
+.s-label{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:#aaa;margin-bottom:6px}
+.s-val{font-family:'Fraunces',serif;font-size:20px;letter-spacing:-0.02em}
+.fp-wrap{width:100%;border:1px solid #eee;background:#fafafa;padding:12px;margin:20px 0 36px}
+.fp-wrap svg,.fp-wrap img{width:100%;height:auto;display:block}
+table{width:100%;border-collapse:collapse}
+thead th{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:#aaa;padding:10px 8px;border-bottom:2px solid #eee;text-align:left}
+.total-row td{font-weight:600;background:#fafafa;padding:14px 8px;border-top:2px solid #eee}
+.t-amount{color:#FF4000;font-family:'Fraunces',serif;font-size:18px}
+.pdf-footer{margin-top:56px;padding-top:20px;border-top:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+.pdf-footer-brand{font-family:'Fraunces',serif;font-size:18px;font-style:italic;color:#590000}
+.pdf-footer-note{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:#ccc}
+@media screen{body{max-width:900px;margin:0 auto}}
+</style></head><body>
+<div class="cover">
+  <div class="cover-eyebrow">Fauna Layout Engine · Industrial Efficiency Report · ${today}</div>
+  <div class="cover-title">${p.name}</div>
+  <div class="cover-sub">Layout proposal &amp;<br>implementation plan.</div>
+  <div class="cover-meta">
+    <div><div class="cv-label">Efficiency score</div><div class="cv-val">${p.efficiency}/100</div></div>
+    <div><div class="cv-label">Total investment</div><div class="cv-val">${p.cost}</div></div>
+    <div><div class="cv-label">Timeline</div><div class="cv-val">${p.timeline}</div></div>
+    <div><div class="cv-label">Changes</div><div class="cv-val">${p.changes} actions</div></div>
+  </div>
+  <div class="cover-wm">F</div>
+</div>
+<div class="page">
+  <div class="pg-head"><span class="pg-brand">Fauna / layout engine</span><span class="pg-info">${p.name} · ${today}</span></div>
+  <span class="sec-label">— 01 / Overview</span>
+  <h2>Proposed <em>floor plan.</em></h2>
+  <div class="sum-grid">
+    <div class="sum-cell"><div class="s-label">Efficiency score</div><div class="s-val">${p.efficiency}/100</div></div>
+    <div class="sum-cell"><div class="s-label">Implementation cost</div><div class="s-val">${p.cost}</div></div>
+    <div class="sum-cell"><div class="s-label">Timeline</div><div class="s-val">${p.timeline}</div></div>
+    <div class="sum-cell"><div class="s-label">Est. itemised spend</div><div class="s-val">$${totalCost.toLocaleString()}</div></div>
+  </div>
+  <div class="fp-wrap">${floorPlanHTML}</div>
+  <p style="font-size:14px;line-height:1.7;color:#555;max-width:72ch">${p.description}</p>
+</div>
+<div class="page">
+  <div class="pg-head"><span class="pg-brand">Fauna / layout engine</span><span class="pg-info">Change breakdown · ${p.changes} actions</span></div>
+  <span class="sec-label">— 02 / Change breakdown</span>
+  <h2>Every <em>change,</em> itemised.</h2>
+  <p style="font-size:14px;line-height:1.7;color:#555;margin:14px 0 28px;max-width:72ch">Each of the ${p.changes} changes below is individually costed and its operational impact quantified.</p>
+  <table>
+    <thead><tr><th style="width:28px">#</th><th>From</th><th>To</th><th>Impact</th><th style="text-align:right">Cost</th></tr></thead>
+    <tbody>${changeRows}</tbody>
+    <tfoot><tr class="total-row"><td colspan="4"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">Total estimated implementation spend</span></td><td style="text-align:right"><span class="t-amount">$${totalCost.toLocaleString()}</span></td></tr></tfoot>
+  </table>
+  <div class="pdf-footer">
+    <span class="pdf-footer-brand">Fauna</span>
+    <span class="pdf-footer-note">Generated ${today} · Industrial Layout Engine v1</span>
+  </div>
+</div>
+</body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 800);
+  toast("PDF report opened — use browser print to save as PDF", "success");
+}
+
+
+
+/* ============================================================
+   LAYOUT IMAGE GENERATION
+   ============================================================ */
+async function generateAndDisplayLayoutImage(layoutKey, layoutData) {
+  const imgContainer = $(`proposal-img-${layoutKey}`);
+  if (!imgContainer) return;
+
+  if (!state.imageBase64) {
+    imgContainer.innerHTML = generateEngineeringDrawing(layoutKey, layoutData);
+    return;
+  }
+
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 960;
+    canvas.height = 600;
+    const ctx = canvas.getContext("2d");
+
+    const img = new Image();
+    img.onload = () => {
+      ctx.globalAlpha = 0.3;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.globalAlpha = 1;
+      drawEquipmentOverlay(ctx, canvas.width, canvas.height, layoutKey, layoutData);
+      const dataUrl = canvas.toDataURL("image/png");
+      imgContainer.innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover;" alt="${layoutData.name} layout" />`;
+    };
+    img.onerror = () => {
+      imgContainer.innerHTML = generateEngineeringDrawing(layoutKey, layoutData);
+    };
+    img.src = state.imageBase64;
+  } catch (err) {
+    imgContainer.innerHTML = generateEngineeringDrawing(layoutKey, layoutData);
+  }
+}
+
+function drawEquipmentOverlay(ctx, width, height, layoutType, layoutData) {
+  const centerY = height / 2;
+
+  if (layoutType === "cost") {
+    drawEquipRect(ctx, 80,  centerY - 60, 120, 100, "INPUT",   "#FF4000", 0.7);
+    drawCanvasArrow(ctx, 200, centerY - 10, 280, centerY - 10, "#10B981");
+    drawEquipRect(ctx, 280, centerY - 60, 120, 100, "PROCESS", "#FF6B35", 0.7);
+    drawCanvasArrow(ctx, 400, centerY - 10, 480, centerY - 10, "#10B981");
+    drawEquipRect(ctx, 480, centerY - 60, 120, 100, "OUTPUT",  "#FF4000", 0.7);
+    ctx.font = "bold 14px monospace"; ctx.fillStyle = "#FF4000";
+    ctx.fillText("LINEAR FLOW — Minimal Setup", 60, height - 40);
+    ctx.font = "12px monospace"; ctx.fillStyle = "#0A0A0A";
+    ctx.fillText("20% Cost Reduction  •  Easy to supervise", 60, height - 20);
+
+  } else if (layoutType === "balanced") {
+    drawEquipRect(ctx, 60,  centerY - 80, 100, 110, "INPUT",    "#FF4000", 0.7);
+    drawEquipRect(ctx, 220, 80,  90, 80, "QC 1",    "#FF8C42", 0.7);
+    drawEquipRect(ctx, 400, 80,  90, 80, "QC 2",    "#FF8C42", 0.7);
+    drawEquipRect(ctx, 560, centerY - 80, 100, 110, "OUTPUT",   "#FF4000", 0.7);
+    drawEquipRect(ctx, 220, centerY + 100, 90, 80, "ASSEMBLY", "#FF6B35", 0.7);
+    drawEquipRect(ctx, 400, centerY + 100, 90, 80, "PACKING",  "#FF6B35", 0.7);
+    ctx.font = "bold 14px monospace"; ctx.fillStyle = "#FF4000";
+    ctx.fillText("U-SHAPED — Recommended", 60, height - 40);
+    ctx.font = "12px monospace"; ctx.fillStyle = "#0A0A0A";
+    ctx.fillText("Best Balance  •  Flexible workforce  •  Quality control", 60, height - 20);
+
+  } else if (layoutType === "output") {
+    drawEquipRect(ctx, 60,  centerY - 40, 85, 80, "INLET",   "#FF4000", 0.7);
+    drawEquipRect(ctx, 210, 60,  85, 70, "Line A", "#FF6B35", 0.7);
+    drawEquipRect(ctx, 350, 60,  85, 70, "Line B", "#FF6B35", 0.7);
+    drawEquipRect(ctx, 490, 60,  85, 70, "Line C", "#FF6B35", 0.7);
+    drawEquipRect(ctx, 210, centerY + 80, 85, 70, "QA 1",   "#FF8C42", 0.7);
+    drawEquipRect(ctx, 350, centerY + 80, 85, 70, "Pack 1", "#FF8C42", 0.7);
+    drawEquipRect(ctx, 490, centerY + 80, 85, 70, "Pack 2", "#FF8C42", 0.7);
+    drawEquipRect(ctx, 700, centerY - 40, 85, 80, "OUTLET",  "#FF4000", 0.7);
+    ctx.font = "bold 14px monospace"; ctx.fillStyle = "#FF4000";
+    ctx.fillText("PARALLEL LINES — High Output", 60, height - 40);
+    ctx.font = "12px monospace"; ctx.fillStyle = "#0A0A0A";
+    ctx.fillText("+35% Throughput  •  3 production lines  •  Capital intensive", 60, height - 20);
+  }
+
+  // Title
+  ctx.font = "bold 16px monospace"; ctx.fillStyle = "#0A0A0A";
+  ctx.fillText(layoutData.name.toUpperCase(), 60, 35);
+
+  // Efficiency badge
+  ctx.fillStyle = "#FF4000";
+  ctx.fillRect(width - 160, 15, 140, 40);
+  ctx.fillStyle = "#F5F1EA"; ctx.textAlign = "center";
+  ctx.font = "bold 12px monospace";
+  ctx.fillText("EFFICIENCY", width - 90, 32);
+  ctx.font = "bold 20px monospace";
+  ctx.fillText(layoutData.efficiency, width - 90, 50);
+  ctx.textAlign = "left";
+}
+
+function drawEquipRect(ctx, x, y, w, h, label, color, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = "#F5F1EA";
+  ctx.font = "bold 12px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(label, x + w / 2, y + h / 2 + 5);
+  ctx.textAlign = "left";
+}
+
+function drawCanvasArrow(ctx, fromX, fromY, toX, toY, color) {
+  const headlen = 12;
+  const angle = Math.atan2(toY - fromY, toX - fromX);
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = 3; ctx.globalAlpha = 0.7;
+  ctx.beginPath(); ctx.moveTo(fromX, fromY); ctx.lineTo(toX, toY); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/* ============================================================
+   FIX 2: SVG ENGINEERING DRAWINGS — marker IDs match usage
+   ============================================================ */
+function generateEngineeringDrawing(layoutType, layoutData) {
+  // W=960, H=600, G=20 — hardcoded to avoid any undefined-variable SVG errors
+  const markerId = `arrow-${layoutType}`;
+
+  const defs = `
+    <defs>
+      <pattern id="grid-${layoutType}" width="20" height="20" patternUnits="userSpaceOnUse">
+        <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#E0D9CE" stroke-width="0.5"/>
+      </pattern>
+      <marker id="${markerId}" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#FF4000"/>
+      </marker>
+      <filter id="shadow-${layoutType}">
+        <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.2"/>
+      </filter>
+    </defs>
+    <rect width="960" height="600" fill="url(#grid-${layoutType})"/>
+    <rect x="20" y="20" width="920" height="560" fill="none" stroke="#0A0A0A" stroke-width="2"/>
+    <text x="760" y="580" font-family="monospace" font-size="11" font-weight="bold" fill="#0A0A0A">FAUNA LAYOUT ENGINE</text>
+    <text x="760" y="595" font-family="monospace" font-size="9" fill="#8C8C8C">${(layoutData && layoutData.name) ? layoutData.name.toUpperCase() : ""}</text>
+  `;
+
+  let body = "";
+  const m = `url(#${markerId})`;  // FIX 2: Use scoped marker ID
+
+  if (layoutType === "cost") {
+    body = `
+      <rect x="50" y="150" width="100" height="120" fill="none" stroke="#FF4000" stroke-width="2" rx="4"/>
+      <text x="100" y="205" text-anchor="middle" font-family="monospace" font-size="13" font-weight="bold" fill="#FF4000">INPUT</text>
+      <text x="100" y="235" text-anchor="middle" font-family="monospace" font-size="9" fill="#8C8C8C">20m × 30m</text>
+      <line x1="150" y1="210" x2="225" y2="210" stroke="#0A0A0A" stroke-width="2" marker-end="${m}"/>
+      <text x="185" y="203" font-family="monospace" font-size="8" fill="#8C8C8C">Belt 1</text>
+      <rect x="230" y="150" width="100" height="120" fill="none" stroke="#FF6B35" stroke-width="2" rx="4"/>
+      <text x="280" y="205" text-anchor="middle" font-family="monospace" font-size="13" font-weight="bold" fill="#FF6B35">PROCESS</text>
+      <text x="280" y="235" text-anchor="middle" font-family="monospace" font-size="9" fill="#8C8C8C">15m × 25m</text>
+      <line x1="330" y1="210" x2="405" y2="210" stroke="#0A0A0A" stroke-width="2" marker-end="${m}"/>
+      <text x="365" y="203" font-family="monospace" font-size="8" fill="#8C8C8C">Belt 2</text>
+      <rect x="410" y="150" width="100" height="120" fill="none" stroke="#FF4000" stroke-width="2" rx="4"/>
+      <text x="460" y="205" text-anchor="middle" font-family="monospace" font-size="13" font-weight="bold" fill="#FF4000">OUTPUT</text>
+      <text x="460" y="235" text-anchor="middle" font-family="monospace" font-size="9" fill="#8C8C8C">18m × 22m</text>
+      <line x1="50" y1="295" x2="510" y2="295" stroke="#0A0A0A" stroke-width="1" stroke-dasharray="2,2"/>
+      <line x1="50" y1="290" x2="50" y2="300" stroke="#0A0A0A" stroke-width="1"/>
+      <line x1="510" y1="290" x2="510" y2="300" stroke="#0A0A0A" stroke-width="1"/>
+      <text x="280" y="315" text-anchor="middle" font-family="monospace" font-size="10" fill="#0A0A0A" font-weight="bold">Total: 65m</text>
+      <text x="50" y="380" font-family="monospace" font-size="10" fill="#FF4000" font-weight="bold">MATERIAL FLOW: LINEAR</text>
+      <text x="50" y="398" font-family="monospace" font-size="9" fill="#0A0A0A">• Minimal space required</text>
+      <text x="50" y="414" font-family="monospace" font-size="9" fill="#0A0A0A">• Easy supervision</text>
+      <text x="50" y="430" font-family="monospace" font-size="9" fill="#0A0A0A">• 20% lower equipment cost</text>
+    `;
+  } else if (layoutType === "balanced") {
+    body = `
+      <rect x="40" y="80" width="90" height="100" fill="none" stroke="#FF4000" stroke-width="2" rx="4"/>
+      <text x="85" y="130" text-anchor="middle" font-family="monospace" font-size="12" font-weight="bold" fill="#FF4000">INPUT</text>
+      <text x="85" y="165" text-anchor="middle" font-family="monospace" font-size="8" fill="#8C8C8C">22m×30m</text>
+      <rect x="170" y="50" width="80" height="70" fill="none" stroke="#FF8C42" stroke-width="2" rx="4"/>
+      <text x="210" y="90" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#FF8C42">QC 1</text>
+      <rect x="300" y="50" width="80" height="70" fill="none" stroke="#FF8C42" stroke-width="2" rx="4"/>
+      <text x="340" y="90" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#FF8C42">QC 2</text>
+      <rect x="430" y="80" width="90" height="100" fill="none" stroke="#FF4000" stroke-width="2" rx="4"/>
+      <text x="475" y="130" text-anchor="middle" font-family="monospace" font-size="12" font-weight="bold" fill="#FF4000">OUTPUT</text>
+      <text x="475" y="165" text-anchor="middle" font-family="monospace" font-size="8" fill="#8C8C8C">24m×28m</text>
+      <rect x="170" y="280" width="80" height="80" fill="none" stroke="#FF6B35" stroke-width="2" rx="4"/>
+      <text x="210" y="325" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#FF6B35">ASSEM</text>
+      <rect x="300" y="280" width="80" height="80" fill="none" stroke="#FF6B35" stroke-width="2" rx="4"/>
+      <text x="340" y="325" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#FF6B35">PACK</text>
+      <line x1="130" y1="130" x2="168" y2="88" stroke="#FF4000" stroke-width="2" marker-end="${m}"/>
+      <line x1="250" y1="85"  x2="298" y2="85" stroke="#FF4000" stroke-width="2" marker-end="${m}"/>
+      <line x1="380" y1="85"  x2="428" y2="128" stroke="#FF4000" stroke-width="2" marker-end="${m}"/>
+      <line x1="475" y1="180" x2="342" y2="278" stroke="#FF4000" stroke-width="2" stroke-dasharray="4,3" marker-end="${m}"/>
+      <line x1="210" y1="278" x2="132" y2="182" stroke="#FF4000" stroke-width="2" stroke-dasharray="4,3" marker-end="${m}"/>
+      <text x="40" y="420" font-family="monospace" font-size="10" fill="#FF4000" font-weight="bold">U-SHAPED CONFIGURATION</text>
+      <text x="40" y="438" font-family="monospace" font-size="9" fill="#0A0A0A">• Balanced cost &amp; throughput</text>
+      <text x="40" y="454" font-family="monospace" font-size="9" fill="#0A0A0A">• Flexible workforce movement</text>
+      <text x="40" y="470" font-family="monospace" font-size="9" fill="#0A0A0A">• Better quality control</text>
+      <text x="40" y="486" font-family="monospace" font-size="9" fill="#FF4000">• ★ Recommended configuration</text>
+    `;
+  } else if (layoutType === "output") {
+    body = `
+      <rect x="30" y="140" width="75" height="90" fill="none" stroke="#FF4000" stroke-width="2" rx="4"/>
+      <text x="67" y="190" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#FF4000">INLET</text>
+      <line x1="105" y1="175" x2="138" y2="88" stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <line x1="105" y1="185" x2="138" y2="193" stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <line x1="105" y1="195" x2="138" y2="298" stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <rect x="140" y="50"  width="70" height="70" fill="none" stroke="#FF6B35" stroke-width="2" rx="4"/>
+      <text x="175" y="90"  text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#FF6B35">M1</text>
+      <rect x="140" y="155" width="70" height="70" fill="none" stroke="#FF6B35" stroke-width="2" rx="4"/>
+      <text x="175" y="195" text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#FF6B35">M2</text>
+      <rect x="140" y="260" width="70" height="70" fill="none" stroke="#FF6B35" stroke-width="2" rx="4"/>
+      <text x="175" y="300" text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#FF6B35">M3</text>
+      <line x1="210" y1="85"  x2="248" y2="85"  stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <line x1="210" y1="190" x2="248" y2="165" stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <line x1="210" y1="295" x2="248" y2="248" stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <rect x="250" y="50"  width="70" height="70" fill="none" stroke="#FF8C42" stroke-width="2" rx="4"/>
+      <text x="285" y="90"  text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#FF8C42">QA</text>
+      <rect x="250" y="130" width="70" height="70" fill="none" stroke="#FF8C42" stroke-width="2" rx="4"/>
+      <text x="285" y="170" text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#FF8C42">P1</text>
+      <rect x="250" y="210" width="70" height="70" fill="none" stroke="#FF8C42" stroke-width="2" rx="4"/>
+      <text x="285" y="250" text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#FF8C42">P2</text>
+      <line x1="320" y1="85"  x2="358" y2="143" stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <line x1="320" y1="165" x2="358" y2="155" stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <line x1="320" y1="245" x2="358" y2="168" stroke="#FF4000" stroke-width="1.5" marker-end="${m}"/>
+      <rect x="360" y="100" width="85" height="80" fill="none" stroke="#FF4000" stroke-width="2" rx="4"/>
+      <text x="402" y="145" text-anchor="middle" font-family="monospace" font-size="12" font-weight="bold" fill="#FF4000">OUTLET</text>
+      <text x="30" y="420" font-family="monospace" font-size="10" fill="#FF4000" font-weight="bold">HIGH-OUTPUT CONFIGURATION</text>
+      <text x="30" y="438" font-family="monospace" font-size="9" fill="#0A0A0A">• 3 parallel production lines</text>
+      <text x="30" y="454" font-family="monospace" font-size="9" fill="#0A0A0A">• Distributed QA/Packaging</text>
+      <text x="30" y="470" font-family="monospace" font-size="9" fill="#0A0A0A">• +35% throughput vs baseline</text>
+      <text x="30" y="486" font-family="monospace" font-size="9" fill="#0A0A0A">• Capital intensive setup</text>
+    `;
+  }
+
+  return `<svg width="100%" height="100%" viewBox="0 0 960 600" style="background:#F5F1EA;" xmlns="http://www.w3.org/2000/svg">${defs}${body}</svg>`;
+}
+
+/* ============================================================
+   SIDE PANEL — PROPOSAL DETAIL
+   ============================================================ */
+function showProposalDetail(key) {
+  const p = state.layouts[key];
+  if (!p) return;
+  state.selectedLayout = key;
+
+  const totalCost = (p.changeList || []).reduce(
+    (s, c) => s + (parseFloat((c.cost || "$0").replace(/[$,]/g, "")) || 0), 0
+  );
+
+  const changeRows = (p.changeList || []).map(c => `
+    <div style="padding:14px 0;border-bottom:1px solid var(--line-dark);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;">
+            <span style="font-family:var(--mono);font-size:10px;color:var(--orange);min-width:22px;">${String(c.id).padStart(2, "0")}</span>
+            <div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px;">
+                <span style="font-family:var(--mono);font-size:9px;background:rgba(10,10,10,0.07);padding:2px 6px;border-radius:2px;color:var(--gray);letter-spacing:0.1em;text-transform:uppercase;flex-shrink:0;">FROM</span>
+                <span style="font-size:12px;color:var(--gray);line-height:1.4;">${c.from}</span>
+              </div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px;">
+                <span style="font-family:var(--mono);font-size:9px;background:rgba(255,64,0,0.1);padding:2px 8px;border-radius:2px;color:var(--orange);letter-spacing:0.1em;text-transform:uppercase;flex-shrink:0;">TO</span>
+                <span style="font-size:12px;font-weight:500;line-height:1.4;">${c.to}</span>
+              </div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--gray);">↗ ${c.impact}</div>
+            </div>
+          </div>
+        </div>
+        <div style="font-family:var(--display);font-size:15px;color:var(--orange);white-space:nowrap;text-align:right;font-variation-settings:'opsz' 48,'SOFT' 30;">${c.cost}</div>
+      </div>
+    </div>`).join("");
+
+  $("side-content").innerHTML = `
+    <div style="padding-bottom:20px;border-bottom:1px solid var(--line-dark);margin-bottom:20px;">
+      <div class="label" style="margin-bottom:12px;color:var(--orange);">— ${p.name}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+        <div>
+          <div class="label" style="margin-bottom:6px;">Efficiency</div>
+          <div style="font-family:var(--display);font-size:26px;color:var(--orange);line-height:1;">${p.efficiency}<span style="font-size:13px;opacity:0.6;">/100</span></div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px;">Cost</div>
+          <div style="font-family:var(--display);font-size:22px;line-height:1;">${p.cost}</div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px;">Timeline</div>
+          <div style="font-family:var(--display);font-size:22px;line-height:1;">${p.timeline}</div>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--gray);line-height:1.6;margin-top:14px;">${p.description}</p>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px;">
+      <div class="label">${p.changes || (p.changeList || []).length} changes required</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--gray);">Total: <span style="color:var(--orange);">$${totalCost.toLocaleString()}</span></div>
+    </div>
+
+    ${changeRows}
+
+    <div style="position:sticky;bottom:0;background:var(--cream);padding:16px 0 0;margin-top:16px;border-top:1px solid var(--line-dark);display:flex;gap:10px;">
+      <button id="btn-select-layout-${key}"
+        style="flex:1;padding:14px;background:var(--orange);color:var(--black);border:none;font-family:var(--mono);font-weight:bold;cursor:pointer;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;">
+        Select this path →
+      </button>
+    </div>
+  `;
+
+  $(`btn-select-layout-${key}`).addEventListener("click", () => {
+    $("sidePanel").classList.remove("open");
+    selectLayout(key);
+  });
+
+  $("sidePanel").classList.add("open");
+}
+
+/* ============================================================
+   FIX 3 + FIX 7: COMPARISON TABLE & RADAR CHART
+   ============================================================ */
+function displayComparison() {
+  if (!state.layouts) return;
+
+  const tbody = $("compare-tbody");
+  tbody.innerHTML = "";
+
+  // Determine winner key
+  const optimise = state.context.optimise;
+  const bestKey = state.recommendation ||
+    (optimise === "cost" ? "cost" : optimise === "output" ? "output" : "balanced");
+  const winnerColIdx = LAYOUT_KEYS.indexOf(bestKey) + 1; // +1 for label column
+
+  // Update header names
+  LAYOUT_KEYS.forEach((key, i) => {
+    const h = $(`ct-name-${i}`);
+    if (h) h.textContent = LAYOUT_TITLES[key];
+  });
+
+  // FIX 3: Rows are METRICS — highlight the winning COLUMN via td class, not tr
+  const rows = [
+    { label: "Efficiency",     get: l => l.efficiency },
+    { label: "Cost",           get: l => l.cost },
+    { label: "Timeline",       get: l => l.timeline },
+    { label: "Changes",        get: l => l.changes }
+  ];
+
+  rows.forEach(row => {
+    const tr = document.createElement("tr");
+    const th = document.createElement("td");
+    th.textContent = row.label;
+    tr.appendChild(th);
+
+    LAYOUT_KEYS.forEach((key, colIdx) => {
+      const td = document.createElement("td");
+      const val = row.get(state.layouts[key]);
+      td.textContent = val;
+      if (row.label === "Efficiency") {
+        td.className = "num";
+      }
+      // FIX 3: Highlight the winning column
+      if (colIdx + 1 === winnerColIdx) {
+        td.classList.add("col-winner");
+      }
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+
+  // Recommendation block
+  const best = state.layouts[bestKey];
+  const nameParts = best.name.split(" ");
+  $("rec-pick").innerHTML = `${nameParts[0]}<br><span class="italic">${nameParts.slice(1).join(" ")}</span>`;
+  $("rec-reason").textContent =
+    `This layout delivers the best balance for your stated priority: ${optimise}. ${best.description}`;
+
+  // FIX 7: Radar chart — destroy previous instance, then create new
+  buildRadarChart(bestKey);
+}
+
+function buildRadarChart(bestKey) {
+  const canvas = $("radar-canvas");
+  if (!canvas) return;
+
+  // Destroy previous chart if it exists
+  if (state.radarChart) {
+    state.radarChart.destroy();
+    state.radarChart = null;
+  }
+
+  const labels = ["Efficiency", "Cost Ratio", "Speed", "Changes", "Safety"];
+  const costData    = [state.layouts.cost.efficiency,    85, 90, 100 - state.layouts.cost.changes * 2,    75];
+  const balancedData= [state.layouts.balanced.efficiency, 65, 65, 100 - state.layouts.balanced.changes * 2, 85];
+  const outputData  = [state.layouts.output.efficiency,  40, 45, 100 - state.layouts.output.changes * 2,   70];
+
+  state.radarChart = new Chart(canvas, {
+    type: "radar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Cost-Effective",
+          data: costData,
+          borderColor: "rgba(255,64,0,0.8)",
+          backgroundColor: "rgba(255,64,0,0.08)",
+          pointBackgroundColor: "#FF4000",
+          borderWidth: bestKey === "cost" ? 3 : 1.5
+        },
+        {
+          label: "Balanced",
+          data: balancedData,
+          borderColor: "rgba(140,140,140,0.8)",
+          backgroundColor: "rgba(140,140,140,0.06)",
+          pointBackgroundColor: "#8C8C8C",
+          borderWidth: bestKey === "balanced" ? 3 : 1.5
+        },
+        {
+          label: "Output-Optimised",
+          data: outputData,
+          borderColor: "rgba(255,140,66,0.8)",
+          backgroundColor: "rgba(255,140,66,0.06)",
+          pointBackgroundColor: "#FF8C42",
+          borderWidth: bestKey === "output" ? 3 : 1.5
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {
+          labels: {
+            font: { family: "monospace", size: 10 },
+            color: "#0A0A0A"
+          }
+        }
+      },
+      scales: {
+        r: {
+          min: 0, max: 100,
+          ticks: {
+            display: false,
+            stepSize: 25
+          },
+          grid: { color: "rgba(10,10,10,0.1)" },
+          pointLabels: {
+            font: { family: "monospace", size: 10 },
+            color: "#0A0A0A"
+          }
+        }
+      }
+    }
+  });
+}
+
+/* ============================================================
+   EXPORT & RESET
+   ============================================================ */
+function exportJSON() {
+  const data = {
+    context:    state.context,
+    floorState: state.floorState,
+    capacity:   state.capacity,
+    downtime:   state.downtime,
+    machinery:  state.machinery,
+    analysis:   state.analysis,
+    layouts:    state.layouts,
+    exportedAt: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url;
+  a.download = `fauna-layout-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast("Exported as JSON", "success");
+}
+
+function resetForm() {
+  if (confirm("Reset all data and start over?")) {
+    location.reload();
+  }
+}
+
+/* ============================================================
+   GEMINI API (used when key is set)
+   ============================================================ */
+function ensureKey() {
+  if (!KEY_IS_SET) {
+    toast("Gemini API key missing — paste a valid key at the top of the file.", "error");
+    $("key-banner").style.display = "block";
+    throw new Error("API key not set");
+  }
+}
+
+async function geminiGenerate(systemPrompt, parts, responseSchema, opts = {}) {
+  ensureKey();
+  const body = {
+    contents: [{ role: "user", parts }],
+    generationConfig: { temperature: opts.temperature ?? 0.7 }
+  };
+  if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
+  if (responseSchema) {
+    body.generationConfig.responseMimeType = "application/json";
+    body.generationConfig.responseSchema = responseSchema;
+  }
+
+  const res = await fetch(ENDPOINT(MODELS.text), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 400 && /API key not valid/i.test(errText)) {
+      $("key-banner").style.display = "block";
+      throw new Error("Gemini API key invalid — paste a valid key at the top of the file.");
+    }
+    if (res.status === 429) throw new Error("Rate limit hit — wait a moment and try again.");
+    throw new Error(`Gemini error ${res.status}: ${errText.slice(0, 140)}`);
+  }
+
+  const data = await res.json();
+  const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("").trim();
+  if (!text) throw new Error("Empty response from Gemini.");
+  return text;
+}
+
+function parseJSON(text) {
+  try { return JSON.parse(text); }
+  catch {
+    return JSON.parse(text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, ""));
+  }
+}
+</script>
+</body>
+</html>
